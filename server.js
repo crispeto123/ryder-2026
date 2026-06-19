@@ -27,18 +27,6 @@ const MIME_TYPES = {
 const db = openDatabase();
 let sharedState;
 sharedState = loadState();
-console.log('[INIT] DB_FILE:', DB_FILE);
-console.log('[INIT] STATE_FILE:', STATE_FILE);
-console.log('[INIT] DB exists:', require('fs').existsSync(DB_FILE));
-console.log('[INIT] JSON exists:', require('fs').existsSync(STATE_FILE));
-try {
-  const { DatabaseSync: DS } = require('node:sqlite');
-  const tmpDb = new DS(DB_FILE);
-  const pCount = tmpDb.prepare('SELECT COUNT(*) as c FROM players').get();
-  const uCount = tmpDb.prepare('SELECT COUNT(*) as c FROM system_users').get();
-  console.log('[INIT] players in DB:', pCount.c, '| system_users:', uCount.c);
-  tmpDb.close();
-} catch(e) { console.log('[INIT] DB check error:', e.message); }
 const clients = new Set();
 
 function defaultPairs() {
