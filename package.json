@@ -1,0 +1,12 @@
+{
+  "name": "ryder-2026",
+  "version": "1.0.0",
+  "description": "Ryder Cup 2026 - Sistema de marcador Match Play",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node tests/scoring-rules.test.js"
+  }
+}

@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ryder 2026 | Tabla de Puntos</title>
+  <link rel="stylesheet" href="css/styles.css?v=20260618-16" />
+</head>
+<body>
+  <header class="app-header">
+    <div>
+      <h1>RYDER</h1>
+      <p id="currentUserLabel" class="current-user" hidden></p>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="scoreboard card">
+      <div class="team team-tigers">
+        <img class="team-emblem tigers-emblem" src="assets/tigers-header.png" alt="" aria-hidden="true" />
+        <span class="team-name">Tigers</span>
+        <strong id="scoreTigers">0,0</strong>
+      </div>
+      <div class="versus">VS</div>
+      <div class="team team-firmas">
+        <img class="team-emblem firmas-emblem" src="assets/firmas-header.png" alt="" aria-hidden="true" />
+        <span class="team-name">Firmas</span>
+        <strong id="scoreFirmas">0,0</strong>
+      </div>
+    </section>
+
+    <div class="started-counter card">
+      <span id="matchProgressLabel">Partidos en juego 0, finalizados 0 de 56</span>
+      <strong id="startedMatches">Puntos en disputa 56</strong>
+    </div>
+
+    <nav class="tabs" aria-label="Pestañas principales">
+      <button class="tab active" data-tab="resultados">Resultados</button>
+      <button class="tab" data-tab="resultados-tv">Resultados TV</button>
+      <button class="tab" data-tab="tarjetas">Tarjetas</button>
+      <button class="tab" data-tab="equipos">Equipos</button>
+      <button id="btnReset" class="btn danger">Reiniciar tarjetas</button>
+      <button id="btnLogout" class="btn secondary" type="button">Cerrar sesión</button>
+    </nav>
+
+    <section id="resultados" class="tab-panel active">
+      <article class="card">
+        <div class="table-wrap">
+          <table class="summary-table">
+            <thead>
+              <tr>
+                <th>Modalidad</th><th>Tigers</th><th>Firmas</th>
+              </tr>
+            </thead>
+            <tbody id="summaryByType"></tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="card mt">
+        <div class="section-title">
+          <label class="search-box" for="resultsTeamSearch">
+            <span>Buscar equipo</span>
+            <input id="resultsTeamSearch" class="team-search" type="search" list="teamOptions" placeholder="Equipo" autocomplete="off" data-search="resultados" />
+          </label>
+          <label class="search-box status-filter-box" for="resultsStatusFilter">
+            <span>Estado</span>
+            <select id="resultsStatusFilter" class="team-search">
+              <option value="Todos">Todos</option>
+              <option value="Sin iniciar">Sin iniciar</option>
+              <option value="En el campo">En el campo</option>
+              <option value="Finalizados">Finalizados</option>
+            </select>
+          </label>
+          <div class="filter-group" data-filter-group="resultados">
+            <button class="chip active" data-filter="Todas">Todas</button>
+            <button class="chip" data-filter="Scramble">Scramble</button>
+            <button class="chip" data-filter="Golpe a Golpe">Golpe a Golpe</button>
+            <button class="chip" data-filter="Individual">Individual</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="results-table">
+            <thead>
+              <tr>
+                <th>Modalidad / Partido</th><th>Tigers</th><th>Firmas</th>
+              </tr>
+            </thead>
+            <tbody id="resultsBody"></tbody>
+          </table>
+        </div>
+      </article>
+    </section>
+
+    <section id="resultados-tv" class="tab-panel">
+      <article class="tv-results-panel">
+        <div class="table-wrap">
+          <table class="tv-summary-table">
+            <thead>
+              <tr>
+                <th>Modalidad</th><th>Tigers</th><th>Firmas</th>
+              </tr>
+            </thead>
+            <tbody id="tvSummaryByType"></tbody>
+          </table>
+        </div>
+      </article>
+    </section>
+
+    <section id="tarjetas" class="tab-panel">
+      <article class="card">
+        <div class="section-title">
+          <div>
+            <h2>Tarjetas</h2>
+          </div>
+          <label class="search-box" for="cardsTeamSearch">
+            <span>Buscar jugador</span>
+            <input id="cardsTeamSearch" class="team-search" type="search" list="playerSearchOptions" placeholder="Jugador" autocomplete="off" data-search="tarjetas" />
+          </label>
+          <label class="search-box status-filter-box" for="cardsStatusFilter">
+            <span>Estado</span>
+            <select id="cardsStatusFilter" class="team-search">
+              <option value="Todos">Todos</option>
+              <option value="Sin iniciar">Sin iniciar</option>
+              <option value="En el campo">En el campo</option>
+              <option value="Finalizados">Finalizados</option>
+            </select>
+          </label>
+          <div class="filter-group" data-filter-group="tarjetas">
+            <button class="chip active" data-filter="Todas">Todas</button>
+            <button class="chip" data-filter="Scramble">Scramble</button>
+            <button class="chip" data-filter="Golpe a Golpe">Golpe a Golpe</button>
+            <button class="chip" data-filter="Individual">Individual</button>
+          </div>
+        </div>
+        <div id="cardsContainer" class="cards-container"></div>
+      </article>
+    </section>
+
+    <section id="equipos" class="tab-panel">
+      <article class="card">
+        <div class="section-title">
+          <div>
+            <h2>Jugadores</h2>
+          </div>
+          <button id="btnAddPlayer" class="btn secondary" type="button">Agregar jugador</button>
+        </div>
+        <div class="table-wrap">
+          <table class="players-table">
+            <thead>
+              <tr>
+                <th>Equipo</th><th>Nombre</th><th>Parejas</th><th>Individuales</th><th>Usuario</th><th>Contraseña</th><th>Es Admin</th>
+              </tr>
+            </thead>
+            <tbody id="playersBody"></tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="card mt">
+        <div class="section-title">
+          <div>
+            <h2>Parejas</h2>
+          </div>
+          <button id="btnClearPairs" class="btn secondary" type="button">Reiniciar parejas sin registros</button>
+        </div>
+        <div class="table-wrap">
+          <table class="roster-table">
+            <thead>
+              <tr>
+                <th>#</th><th>Tigers</th><th>Firmas</th>
+              </tr>
+            </thead>
+            <tbody id="pairsBody"></tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="card mt">
+        <div class="section-title">
+          <div>
+            <h2>Individuales</h2>
+          </div>
+          <button id="btnClearIndividuals" class="btn secondary" type="button">Reiniciar individuales sin registros</button>
+        </div>
+        <div class="table-wrap">
+          <table class="roster-table">
+            <thead>
+              <tr>
+                <th>#</th><th>Tigers</th><th>Firmas</th>
+              </tr>
+            </thead>
+            <tbody id="individualsBody"></tbody>
+          </table>
+        </div>
+      </article>
+    </section>
+  </main>
+
+  <datalist id="teamOptions"></datalist>
+  <datalist id="playerSearchOptions"></datalist>
+  <datalist id="tigersPlayerOptions"></datalist>
+  <datalist id="firmasPlayerOptions"></datalist>
+  <div id="playerPicker" class="player-picker" hidden></div>
+
+  <template id="matchTemplate">
+    <article class="match-card">
+      <div class="match-head">
+        <div class="match-title">
+          <span class="badge"></span>
+          <h3></h3>
+        </div>
+        <div class="match-status"><span class="status-tigers">AS</span><span class="status-points">0,5 - 0,5</span></div>
+      </div>
+      <div class="match-grid"></div>
+    </article>
+  </template>
+
+  <div id="resetModal" class="modal-backdrop" hidden>
+    <div class="modal">
+      <h2>Reiniciar tarjetas</h2>
+      <p class="modal-hint">Esta accion borra todos los scores, firmas y finalizaciones de las tarjetas. Conserva jugadores, parejas e individuales configurados.</p>
+      <label class="modal-label" for="resetPassword">Contraseña</label>
+      <input id="resetPassword" class="modal-input" type="password" inputmode="numeric" autocomplete="off" />
+      <p id="resetError" class="modal-error" hidden>Contraseña incorrecta.</p>
+      <div class="modal-actions">
+        <button id="btnCancelReset" class="btn secondary" type="button">Cancelar</button>
+        <button id="btnConfirmReset" class="btn danger" type="button">Reiniciar</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="loginModal" class="modal-backdrop login-backdrop" hidden>
+    <form id="loginForm" class="modal login-modal">
+      <h2>Iniciar sesión</h2>
+      <label class="modal-label" for="loginUser">Usuario</label>
+      <input id="loginUser" class="modal-input" type="text" autocomplete="username" />
+      <label class="modal-label" for="loginPassword">Contraseña</label>
+      <input id="loginPassword" class="modal-input" type="password" autocomplete="current-password" />
+      <p id="loginError" class="modal-error" hidden>Usuario o contraseña incorrectos.</p>
+      <div class="modal-actions">
+        <button id="btnLogin" class="btn" type="submit">Entrar</button>
+      </div>
+    </form>
+  </div>
+
+  <div id="signatureModal" class="modal-backdrop" hidden>
+    <div class="modal signature-modal">
+      <h2>Finalizar tarjeta</h2>
+      <p id="signatureMatchLabel" class="modal-hint"></p>
+      <div class="signature-grid">
+        <div>
+          <label class="modal-label" for="signatureCanvasTigers">Firma Tigers</label>
+          <canvas id="signatureCanvasTigers" class="signature-canvas" width="520" height="180"></canvas>
+        </div>
+        <div>
+          <label class="modal-label" for="signatureCanvasFirmas">Firma Firmas</label>
+          <canvas id="signatureCanvasFirmas" class="signature-canvas" width="520" height="180"></canvas>
+        </div>
+      </div>
+      <p id="signatureError" class="modal-error" hidden>Dibuja la firma antes de finalizar.</p>
+      <div class="modal-actions">
+        <button id="btnClearSignature" class="btn secondary" type="button">Limpiar</button>
+        <button id="btnCancelSignature" class="btn secondary" type="button">Cancelar</button>
+        <button id="btnConfirmSignature" class="btn" type="button">Finalizar</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="unlockModal" class="modal-backdrop" hidden>
+    <div class="modal">
+      <h2>Abrir tarjeta</h2>
+      <label class="modal-label" for="unlockUser">Usuario</label>
+      <input id="unlockUser" class="modal-input" type="text" autocomplete="username" />
+      <label class="modal-label" for="unlockPassword">Contraseña</label>
+      <input id="unlockPassword" class="modal-input" type="password" inputmode="numeric" autocomplete="off" />
+      <p id="unlockError" class="modal-error" hidden>Usuario o contraseña incorrectos.</p>
+      <div class="modal-actions">
+        <button id="btnCancelUnlock" class="btn secondary" type="button">Cancelar</button>
+        <button id="btnConfirmUnlock" class="btn danger" type="button">Abrir tarjeta</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="data/matches.js"></script>
+  <script src="js/sync-adapter.js?v=20260618-16"></script>
+  <script src="js/app.js?v=20260618-16"></script>
+</body>
+</html>
