@@ -7,8 +7,8 @@ const { DatabaseSync } = require('node:sqlite');
 const PORT = Number(process.env.PORT || 8767);
 const HOST = process.env.HOST || '0.0.0.0';
 const ROOT = __dirname;
-const STATE_FILE = path.join(ROOT, 'data', 'state.json');
-const DB_FILE = path.join(ROOT, 'data', 'ryder.sqlite');
+const STATE_FILE = process.env.DATA_DIR ? path.join(process.env.DATA_DIR, 'state.json') : path.join(ROOT, 'data', 'state.json');
+const DB_FILE = process.env.DATA_DIR ? path.join(process.env.DATA_DIR, 'ryder.sqlite') : path.join(ROOT, 'data', 'ryder.sqlite');
 const BACKUP_DIR = path.join(ROOT, 'backups');
 const WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 
