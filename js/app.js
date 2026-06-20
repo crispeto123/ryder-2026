@@ -11,6 +11,9 @@ const state = {
   individuals: structuredClone(window.RYDER_INDIVIDUALS || []),
   values: {},
   finalizations: {},
+  settings: {
+    cardsEditingEnabled: false
+  },
   resultsFilter: 'Todas',
   resultsStatusFilter: 'Todos',
   cardsFilter: 'Todas',
@@ -81,6 +84,14 @@ function warnOfflineWrite() {
   alert('Sin conexion con el servidor. No se pueden guardar cambios.');
 }
 
+function cardsEditingEnabled() {
+  return toBoolean(state.settings?.cardsEditingEnabled);
+}
+
+function cardsEditingBlockedForUser() {
+  return isLoggedIn() && !isAdminUser() && !cardsEditingEnabled();
+}
+
 function canEditMatch(match) {
   if (isAdminUser()) return true;
   if (!match) return false;
@@ -93,6 +104,10 @@ function canEditMatch(match) {
   return [teamName(match, 'tigers'), teamName(match, 'firmas')].some(name =>
     parseSelection(name).some(playerName => normalizeSearch(playerName) === userName)
   );
+}
+
+function canWriteMatch(match) {
+  return canEditMatch(match) && (isAdminUser() || cardsEditingEnabled());
 }
 
 function isFinalized(matchId) {
@@ -156,6 +171,10 @@ function applyAccessControl() {
   });
   const resetButton = document.getElementById('btnReset');
   if (resetButton) resetButton.hidden = !admin || tvOnly;
+  const cardsEditingToggleWrap = document.getElementById('cardsEditingToggleWrap');
+  const cardsEditingToggle = document.getElementById('cardsEditingToggle');
+  if (cardsEditingToggleWrap) cardsEditingToggleWrap.hidden = !admin || tvOnly;
+  if (cardsEditingToggle) cardsEditingToggle.checked = cardsEditingEnabled();
   const logoutButton = document.getElementById('btnLogout');
   if (logoutButton) logoutButton.hidden = !loggedIn;
   const userLabel = document.getElementById('currentUserLabel');
@@ -169,6 +188,11 @@ function applyAccessControl() {
   } else if (!canAccessTab(document.body.dataset.activeTab)) {
     setActiveTab('resultados');
   }
+}
+
+function renderSettingsControls() {
+  const cardsEditingToggle = document.getElementById('cardsEditingToggle');
+  if (cardsEditingToggle) cardsEditingToggle.checked = cardsEditingEnabled();
 }
 
 function mergePlayers(savedPlayers = []) {
@@ -210,6 +234,7 @@ function stateSnapshot() {
   return {
     values: state.values,
     finalizations: state.finalizations,
+    settings: state.settings,
     players: state.players,
     systemUsers: state.systemUsers,
     pairs: state.pairs,
@@ -234,6 +259,9 @@ function applySnapshot(snapshot) {
   if (!snapshot) return;
   state.values = Object.hasOwn(snapshot, 'values') ? snapshot.values : {};
   state.finalizations = Object.hasOwn(snapshot, 'finalizations') ? snapshot.finalizations : {};
+  state.settings = {
+    cardsEditingEnabled: toBoolean(snapshot.settings?.cardsEditingEnabled)
+  };
   if (Array.isArray(snapshot.players)) state.players = mergePlayers(snapshot.players);
   if (Array.isArray(snapshot.systemUsers)) state.systemUsers = snapshot.systemUsers;
   state.pairs = cleanRosterPlaceholders(Array.isArray(snapshot.pairs)
@@ -590,7 +618,7 @@ function holeInput(match, team, index) {
   const value = state.values[match.id][team][index] ?? '';
   const calc = calculateMatch(match.id);
   const closedRemaining = calc.closed && value === '';
-  const disabled = canWriteOnline() && canEditMatch(match) && !isFinalized(match.id) && !closedRemaining ? '' : 'disabled';
+  const disabled = canWriteOnline() && canWriteMatch(match) && !isFinalized(match.id) && !closedRemaining ? '' : 'disabled';
   return `<input class="hole-input" type="number" min="1" max="20" inputmode="numeric" value="${value}" data-match="${match.id}" data-team="${team}" data-hole="${index}" aria-label="${team} hoyo ${index + 1}" ${disabled}>`;
 }
 
@@ -633,6 +661,13 @@ function renderCards() {
     return;
   }
 
+  if (cardsEditingBlockedForUser()) {
+    const notice = document.createElement('p');
+    notice.className = 'cards-locked-notice';
+    notice.textContent = 'Edicion de tarjetas bloqueada por administracion.';
+    container.appendChild(notice);
+  }
+
   matches
     .forEach(match => {
       const calc = calculateMatch(match.id);
@@ -645,7 +680,7 @@ function renderCards() {
       node.querySelector('h3').textContent = matchNumber;
       const actions = isFinalized(match.id)
         ? `<button class="btn secondary card-action" type="button" data-card-action="unlock" data-match="${match.id}">Abrir tarjeta</button>`
-        : canEditMatch(match) && canFinalizeMatch(match, calc)
+        : canWriteMatch(match) && canFinalizeMatch(match, calc)
           ? `<button class="btn card-action" type="button" data-card-action="finalize" data-match="${match.id}">Finalizar</button>`
           : '';
       node.querySelector('.match-status').innerHTML = `
@@ -758,6 +793,7 @@ function renderRoster() {
 
 function renderAll() {
   const editingRoster = document.activeElement?.classList?.contains('roster-input') || document.activeElement?.classList?.contains('player-input');
+  renderSettingsControls();
   renderScoreboard();
   renderTeamOptions();
   renderResultsTable();
@@ -775,7 +811,7 @@ function onInput(event) {
     renderCards();
     return;
   }
-  if (!canEditMatch(matchItem) || isFinalized(match)) return;
+  if (!canWriteMatch(matchItem) || isFinalized(match)) return;
   state.values[match][team][Number(hole)] = input.value;
   saveState({ sync: false });
   window.RyderSync?.setHole?.(match, team, Number(hole), input.value, currentUsername());
@@ -791,7 +827,7 @@ function openSignatureModal(matchId) {
     warnOfflineWrite();
     return;
   }
-  if (!match || !canEditMatch(match) || isFinalized(matchId)) return;
+  if (!match || !canWriteMatch(match) || isFinalized(matchId)) return;
   if (!canFinalizeMatch(match, calc)) {
     alert('Esta tarjeta aun no se puede finalizar. Debe estar definida por Match Play o tener todos los hoyos jugados.');
     return;
@@ -844,6 +880,11 @@ function finalizeCurrentMatch() {
     return;
   }
   const calc = calculateMatch(match.id);
+  if (!canWriteMatch(match)) {
+    document.getElementById('signatureError').hidden = false;
+    document.getElementById('signatureError').textContent = 'Edicion de tarjetas bloqueada por administracion.';
+    return;
+  }
   if (!canFinalizeMatch(match, calc)) {
     document.getElementById('signatureError').hidden = false;
     document.getElementById('signatureError').textContent = 'Esta tarjeta aun no se puede finalizar. Debe estar definida por Match Play o tener todos los hoyos jugados.';
@@ -1292,6 +1333,22 @@ function resetAll() {
   closeResetModal();
 }
 
+function toggleCardsEditing(event) {
+  if (!event.target.closest('#cardsEditingToggle')) return;
+  if (!isAdminUser()) {
+    renderSettingsControls();
+    return;
+  }
+  if (!canWriteOnline()) {
+    warnOfflineWrite();
+    renderSettingsControls();
+    return;
+  }
+  state.settings.cardsEditingEnabled = event.target.checked;
+  saveState();
+  renderAll();
+}
+
 function bindEvents() {
   document.addEventListener('input', onInput);
   document.addEventListener('click', onCardAction);
@@ -1299,6 +1356,7 @@ function bindEvents() {
   document.addEventListener('input', onPlayerInput);
   document.addEventListener('change', onPlayerInput);
   document.addEventListener('click', togglePlayerPassword);
+  document.addEventListener('change', toggleCardsEditing);
   document.addEventListener('click', chooseRosterPlayer);
   document.addEventListener('click', removeRosterPlayer);
   document.addEventListener('click', event => {

@@ -112,6 +112,11 @@ function openDatabase() {
       is_admin INTEGER NOT NULL DEFAULT 0,
       access TEXT
     );
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS pairs (
       id INTEGER PRIMARY KEY,
       tigers_player_1_id INTEGER,
@@ -377,6 +382,15 @@ function composeFinalizationsFromDb() {
   return finalizations;
 }
 
+function loadSettingsFromDb() {
+  const rows = db.prepare('SELECT key, value FROM settings').all();
+  const settings = { cardsEditingEnabled: false };
+  rows.forEach(row => {
+    if (row.key === 'cardsEditingEnabled') settings.cardsEditingEnabled = row.value === 'true';
+  });
+  return settings;
+}
+
 function composeStateFromDb() {
   const players = loadPlayersFromDb();
   const systemUsers = loadSystemUsersFromDb();
@@ -385,6 +399,7 @@ function composeStateFromDb() {
     values: {
       values: composeScoresFromDb(),
       finalizations: composeFinalizationsFromDb(),
+      settings: loadSettingsFromDb(),
       players,
       systemUsers,
       pairs: composePairsFromDb(byId),
@@ -415,6 +430,18 @@ function messageUsername(message) {
   return String(message?.username || message?.finalization?.finalizedBy || '').trim();
 }
 
+function userIsAdmin(username) {
+  const key = normalizeName(username);
+  if (!key) return false;
+  return [...loadSystemUsersFromDb(), ...loadPlayersFromDb()].some(user =>
+    (normalizeName(user.username) === key || normalizeName(user.name) === key) && Boolean(user.isAdmin)
+  );
+}
+
+function cardsEditingEnabledFor(username) {
+  return loadSettingsFromDb().cardsEditingEnabled || userIsAdmin(username);
+}
+
 function syncRelationalTables(state) {
   const values = state.values || {};
   const players = Array.isArray(values.players) ? values.players : [];
@@ -423,6 +450,7 @@ function syncRelationalTables(state) {
   const individuals = Array.isArray(values.individuals) ? values.individuals : [];
   const scores = values.values || {};
   const finalizations = values.finalizations || {};
+  const settings = { ...loadSettingsFromDb(), ...(values.settings || {}) };
   const now = new Date().toISOString();
   const insertPlayer = db.prepare(`
     INSERT INTO players (id, team, name, username, password, is_admin)
@@ -452,6 +480,11 @@ function syncRelationalTables(state) {
     INSERT INTO signatures (match_id, team, data_url, updated_at)
     VALUES (?, ?, ?, ?)
   `);
+  const insertSetting = db.prepare(`
+    INSERT INTO settings (key, value, updated_at)
+    VALUES (?, ?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+  `);
 
   db.exec(`
     DELETE FROM signatures;
@@ -462,6 +495,7 @@ function syncRelationalTables(state) {
     DELETE FROM players;
     DELETE FROM system_users;
   `);
+  insertSetting.run('cardsEditingEnabled', settings.cardsEditingEnabled ? 'true' : 'false', now);
   players.forEach(player => {
     insertPlayer.run(
       Number(player.id),
@@ -630,6 +664,7 @@ function setHoleValue(message) {
   const team = message.team;
   const hole = Number(message.hole);
   if (!matchId || !['tigers', 'firmas'].includes(team) || !Number.isInteger(hole) || hole < 0) return false;
+  if (!cardsEditingEnabledFor(messageUsername(message))) return false;
   if (isFinalizedRecord(appState().finalizations?.[matchId])) return false;
 
   const current = appState();
@@ -672,6 +707,7 @@ function serveStatic(req, res) {
       finalizations: db.prepare('SELECT COUNT(*) AS total FROM finalizations WHERE finalized = 1').get().total,
       signatures: db.prepare('SELECT COUNT(*) AS total FROM signatures').get().total,
       auditLog: db.prepare('SELECT COUNT(*) AS total FROM audit_log').get().total,
+      cardsEditingEnabled: loadSettingsFromDb().cardsEditingEnabled,
       updatedAt: new Date().toISOString()
     });
     res.writeHead(200, {
@@ -787,12 +823,17 @@ function handleMessage(socket, raw) {
   }
 
   if (message.type === 'set-state') {
-    mergeIncomingState(message.values || {});
+    const incomingValues = { ...(message.values || {}) };
+    if (incomingValues.settings && !userIsAdmin(messageUsername(message))) {
+      incomingValues.settings = appState().settings || loadSettingsFromDb();
+    }
+    mergeIncomingState(incomingValues);
     saveSharedState();
     audit('set-state', {
-      players: Array.isArray(message.values?.players) ? message.values.players.length : 0,
-      pairs: Array.isArray(message.values?.pairs) ? message.values.pairs.filter(item => item.tigers || item.firmas).length : 0,
-      individuals: Array.isArray(message.values?.individuals) ? message.values.individuals.filter(item => item.tigers || item.firmas).length : 0
+      players: Array.isArray(incomingValues.players) ? incomingValues.players.length : 0,
+      pairs: Array.isArray(incomingValues.pairs) ? incomingValues.pairs.filter(item => item.tigers || item.firmas).length : 0,
+      individuals: Array.isArray(incomingValues.individuals) ? incomingValues.individuals.filter(item => item.tigers || item.firmas).length : 0,
+      cardsEditingEnabled: Boolean(incomingValues.settings?.cardsEditingEnabled)
     }, null, messageUsername(message));
     broadcast({ type: 'state', values: sharedState.values });
     return;
@@ -821,6 +862,16 @@ function handleMessage(socket, raw) {
     const existing = appState().finalizations?.[matchId];
 
     if (!matchId || !isFinalizedRecord(finalization)) return;
+    if (!cardsEditingEnabledFor(messageUsername(message))) {
+      audit('finalize-rejected', { reason: 'cards-editing-disabled' }, matchId, messageUsername(message));
+      send(socket, {
+        type: 'finalize-rejected',
+        matchId,
+        message: 'Edicion de tarjetas bloqueada por administracion.',
+        values: sharedState.values
+      });
+      return;
+    }
 
     if (isFinalizedRecord(existing)) {
       const detail = finalizationLabel(existing);
@@ -875,6 +926,7 @@ function handleMessage(socket, raw) {
         systemUsers: current.systemUsers || [],
         pairs: current.pairs || emptyPairs(),
         individuals: current.individuals || emptyIndividuals(),
+        settings: current.settings || loadSettingsFromDb(),
         values: {},
         finalizations: {}
       }
