@@ -28,6 +28,7 @@ let signatureMatchId = '';
 let unlockMatchId = '';
 const pendingFinalizations = new Set();
 const pendingFinalizationTimers = new Map();
+const pendingHoleSaves = new Map();
 const signatureInk = { tigers: false, firmas: false };
 
 function toBoolean(value) {
@@ -138,6 +139,54 @@ function markFinalizationPending(matchId) {
     alert('No se pudo confirmar la finalizacion con el servidor. Refresca la pagina y revisa si quedo finalizada antes de intentar otra vez.');
     window.RyderSync?.refresh?.();
   }, 20000));
+}
+
+function holeSaveKey(matchId, team, hole) {
+  return `${matchId}|${team}|${hole}`;
+}
+
+function remoteHoleValue(matchId, team, hole) {
+  return String(state.values?.[matchId]?.[team]?.[Number(hole)] ?? '');
+}
+
+function clearPendingHoleSave(key) {
+  const pending = pendingHoleSaves.get(key);
+  if (pending?.timer) window.clearTimeout(pending.timer);
+  pendingHoleSaves.delete(key);
+}
+
+function markHoleSavePending(matchId, team, hole, value) {
+  const key = holeSaveKey(matchId, team, hole);
+  clearPendingHoleSave(key);
+  pendingHoleSaves.set(key, {
+    matchId,
+    team,
+    hole: Number(hole),
+    value: String(value ?? ''),
+    status: 'saving',
+    timer: window.setTimeout(() => {
+      const pending = pendingHoleSaves.get(key);
+      if (!pending || pending.status !== 'saving') return;
+      pending.status = 'failed';
+      renderCards();
+      window.RyderSync?.refresh?.();
+    }, 8000)
+  });
+}
+
+function reconcilePendingHoleSaves() {
+  [...pendingHoleSaves.entries()].forEach(([key, pending]) => {
+    if (remoteHoleValue(pending.matchId, pending.team, pending.hole) === pending.value) {
+      clearPendingHoleSave(key);
+    }
+  });
+}
+
+function matchSaveStatus(matchId) {
+  const entries = [...pendingHoleSaves.values()].filter(item => item.matchId === matchId);
+  if (!entries.length) return null;
+  if (entries.some(item => item.status === 'failed')) return 'Sin confirmar';
+  return 'Guardando...';
 }
 
 function matchResultLabel(match, calc = calculateMatch(match.id)) {
@@ -347,6 +396,7 @@ function applyRemoteState(snapshot) {
   pendingFinalizations.forEach(matchId => {
     if (isFinalized(matchId)) clearPendingFinalization(matchId);
   });
+  reconcilePendingHoleSaves();
   ensureStateShape();
   saveState();
   applyAccessControl();
@@ -662,7 +712,12 @@ function holeInput(match, team, index) {
   const calc = calculateMatch(match.id);
   const closedRemaining = calc.closed && value === '';
   const disabled = canWriteOnline() && canWriteMatch(match) && !isFinalized(match.id) && !isFinalizationPending(match.id) && !closedRemaining ? '' : 'disabled';
-  return `<input class="hole-input" type="number" min="1" max="20" inputmode="numeric" value="${value}" data-match="${match.id}" data-team="${team}" data-hole="${index}" aria-label="${team} hoyo ${index + 1}" ${disabled}>`;
+  const pending = pendingHoleSaves.get(holeSaveKey(match.id, team, index));
+  const saveClass = pending ? ` save-${pending.status}` : '';
+  const saveTitle = pending?.status === 'failed'
+    ? 'Sin confirmar en servidor'
+    : pending ? 'Guardando en servidor' : '';
+  return `<input class="hole-input${saveClass}" type="number" min="1" max="20" inputmode="numeric" value="${value}" data-match="${match.id}" data-team="${team}" data-hole="${index}" aria-label="${team} hoyo ${index + 1}" title="${saveTitle}" ${disabled}>`;
 }
 
 function holeHeaders(start, count = HOLES, extraClass = '') {
@@ -723,6 +778,7 @@ function renderCards() {
       node.querySelector('.badge').textContent = match.type;
       node.querySelector('h3').textContent = matchNumber;
       const printUrl = `/api/matches/${encodeURIComponent(match.id)}/print?user=${encodeURIComponent(currentUsername())}`;
+      const saveStatus = matchSaveStatus(match.id);
       const actions = isFinalized(match.id)
         ? `${canEditMatch(match) ? `<a class="btn secondary card-download" href="${printUrl}" target="_blank" rel="noopener">Descargar PDF</a>` : ''}
           <button class="btn secondary card-action" type="button" data-card-action="unlock" data-match="${match.id}">Abrir tarjeta</button>`
@@ -737,6 +793,7 @@ function renderCards() {
           <span class="summary-separator">/</span>
           <span class="summary-team summary-firmas">Firmas <strong class="${statusClass(calc.firmasStatus)}">${calc.firmasStatus}</strong> <em>${formatNumber(calc.firmasPoints)} pts</em></span>
         </span>
+        ${saveStatus ? `<span class="save-status ${saveStatus === 'Sin confirmar' ? 'failed' : ''}">${saveStatus}</span>` : ''}
         ${actions}
       `;
 
@@ -862,7 +919,12 @@ function onInput(event) {
   if (!canWriteMatch(matchItem) || isFinalized(match)) return;
   state.values[match][team][Number(hole)] = input.value;
   saveState({ sync: false });
-  window.RyderSync?.setHole?.(match, team, Number(hole), input.value, currentUsername());
+  const sent = window.RyderSync?.setHole?.(match, team, Number(hole), input.value, currentUsername());
+  if (sent) {
+    markHoleSavePending(match, team, Number(hole), input.value);
+  } else {
+    warnOfflineWrite();
+  }
   renderAll();
   const restored = document.querySelector(`[data-match="${match}"][data-team="${team}"][data-hole="${hole}"]`);
   restored?.focus();
