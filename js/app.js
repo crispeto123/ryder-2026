@@ -26,6 +26,7 @@ const state = {
 let applyingRemoteState = false;
 let signatureMatchId = '';
 let unlockMatchId = '';
+const pendingFinalizations = new Set();
 const signatureInk = { tigers: false, firmas: false };
 
 function toBoolean(value) {
@@ -112,6 +113,10 @@ function canWriteMatch(match) {
 
 function isFinalized(matchId) {
   return Boolean(state.finalizations[matchId]?.finalized);
+}
+
+function isFinalizationPending(matchId) {
+  return pendingFinalizations.has(matchId);
 }
 
 function matchResultLabel(match, calc = calculateMatch(match.id)) {
@@ -318,6 +323,9 @@ function applyRemoteState(snapshot) {
   } else {
     state.values = snapshot || {};
   }
+  pendingFinalizations.forEach(matchId => {
+    if (isFinalized(matchId)) pendingFinalizations.delete(matchId);
+  });
   ensureStateShape();
   saveState();
   applyAccessControl();
@@ -326,6 +334,7 @@ function applyRemoteState(snapshot) {
 }
 
 function handleSyncWarning(event) {
+  pendingFinalizations.clear();
   if (event.detail?.values) applyRemoteState(event.detail.values);
   alert(event.detail?.message || 'La tarjeta ya fue finalizada por otro usuario.');
 }
@@ -626,7 +635,7 @@ function holeInput(match, team, index) {
   const value = state.values[match.id][team][index] ?? '';
   const calc = calculateMatch(match.id);
   const closedRemaining = calc.closed && value === '';
-  const disabled = canWriteOnline() && canWriteMatch(match) && !isFinalized(match.id) && !closedRemaining ? '' : 'disabled';
+  const disabled = canWriteOnline() && canWriteMatch(match) && !isFinalized(match.id) && !isFinalizationPending(match.id) && !closedRemaining ? '' : 'disabled';
   return `<input class="hole-input" type="number" min="1" max="20" inputmode="numeric" value="${value}" data-match="${match.id}" data-team="${team}" data-hole="${index}" aria-label="${team} hoyo ${index + 1}" ${disabled}>`;
 }
 
@@ -683,6 +692,7 @@ function renderCards() {
       const card = node.querySelector('.match-card');
       card.dataset.match = match.id;
       card.classList.toggle('finalized', isFinalized(match.id));
+      card.classList.toggle('pending-finalization', isFinalizationPending(match.id));
       const matchNumber = match.title.match(/#\d+$/)?.[0] || match.title;
       node.querySelector('.badge').textContent = match.type;
       node.querySelector('h3').textContent = matchNumber;
@@ -690,6 +700,8 @@ function renderCards() {
       const actions = isFinalized(match.id)
         ? `${canEditMatch(match) ? `<a class="btn secondary card-download" href="${pdfUrl}" target="_blank" rel="noopener">Descargar PDF</a>` : ''}
           <button class="btn secondary card-action" type="button" data-card-action="unlock" data-match="${match.id}">Abrir tarjeta</button>`
+        : isFinalizationPending(match.id)
+          ? '<button class="btn secondary card-action" type="button" disabled>Finalizando...</button>'
         : canWriteMatch(match) && canFinalizeMatch(match, calc)
           ? `<button class="btn card-action" type="button" data-card-action="finalize" data-match="${match.id}">Finalizar</button>`
           : '';
@@ -905,7 +917,7 @@ function finalizeCurrentMatch() {
     document.getElementById('signatureError').textContent = 'Dibuja la firma de Tigers y Firmas antes de finalizar.';
     return;
   }
-  state.finalizations[match.id] = {
+  const finalization = {
     finalized: true,
     result: winnerLabel(match, calc),
     signatures: {
@@ -915,8 +927,20 @@ function finalizeCurrentMatch() {
     finalizedAt: new Date().toISOString(),
     finalizedBy: currentUsername()
   };
-  saveState({ sync: false });
-  window.RyderSync?.finalize?.(match.id, stateSnapshot(), state.finalizations[match.id], currentUsername());
+  const nextValues = {
+    ...stateSnapshot(),
+    finalizations: {
+      ...state.finalizations,
+      [match.id]: finalization
+    }
+  };
+  const sent = window.RyderSync?.finalize?.(match.id, nextValues, finalization, currentUsername());
+  if (!sent) {
+    document.getElementById('signatureError').hidden = false;
+    document.getElementById('signatureError').textContent = 'Sin conexion con el servidor. No se puede finalizar.';
+    return;
+  }
+  pendingFinalizations.add(match.id);
   closeSignatureModal();
   renderAll();
 }
