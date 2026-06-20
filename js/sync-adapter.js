@@ -61,6 +61,7 @@
         if (message.type === 'finalize-rejected') {
           window.dispatchEvent(new CustomEvent('ryder-sync-warning', {
             detail: {
+              matchId: message.matchId || '',
               message: message.message || 'Esta tarjeta ya fue finalizada.',
               values: message.values || {}
             }

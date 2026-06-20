@@ -27,6 +27,7 @@ let applyingRemoteState = false;
 let signatureMatchId = '';
 let unlockMatchId = '';
 const pendingFinalizations = new Set();
+const pendingFinalizationTimers = new Map();
 const signatureInk = { tigers: false, firmas: false };
 
 function toBoolean(value) {
@@ -117,6 +118,26 @@ function isFinalized(matchId) {
 
 function isFinalizationPending(matchId) {
   return pendingFinalizations.has(matchId);
+}
+
+function clearPendingFinalization(matchId) {
+  if (!matchId) return;
+  pendingFinalizations.delete(matchId);
+  const timer = pendingFinalizationTimers.get(matchId);
+  if (timer) window.clearTimeout(timer);
+  pendingFinalizationTimers.delete(matchId);
+}
+
+function markFinalizationPending(matchId) {
+  clearPendingFinalization(matchId);
+  pendingFinalizations.add(matchId);
+  pendingFinalizationTimers.set(matchId, window.setTimeout(() => {
+    if (!pendingFinalizations.has(matchId) || isFinalized(matchId)) return;
+    clearPendingFinalization(matchId);
+    renderAll();
+    alert('No se pudo confirmar la finalizacion con el servidor. Refresca la pagina y revisa si quedo finalizada antes de intentar otra vez.');
+    window.RyderSync?.refresh?.();
+  }, 20000));
 }
 
 function matchResultLabel(match, calc = calculateMatch(match.id)) {
@@ -324,7 +345,7 @@ function applyRemoteState(snapshot) {
     state.values = snapshot || {};
   }
   pendingFinalizations.forEach(matchId => {
-    if (isFinalized(matchId)) pendingFinalizations.delete(matchId);
+    if (isFinalized(matchId)) clearPendingFinalization(matchId);
   });
   ensureStateShape();
   saveState();
@@ -334,7 +355,12 @@ function applyRemoteState(snapshot) {
 }
 
 function handleSyncWarning(event) {
-  pendingFinalizations.clear();
+  const matchId = event.detail?.matchId;
+  if (matchId) {
+    clearPendingFinalization(matchId);
+  } else {
+    [...pendingFinalizations].forEach(clearPendingFinalization);
+  }
   if (event.detail?.values) applyRemoteState(event.detail.values);
   alert(event.detail?.message || 'La tarjeta ya fue finalizada por otro usuario.');
 }
@@ -940,7 +966,7 @@ function finalizeCurrentMatch() {
     document.getElementById('signatureError').textContent = 'Sin conexion con el servidor. No se puede finalizar.';
     return;
   }
-  pendingFinalizations.add(match.id);
+  markFinalizationPending(match.id);
   closeSignatureModal();
   renderAll();
 }

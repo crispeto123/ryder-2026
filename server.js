@@ -1396,7 +1396,15 @@ function handleMessage(socket, raw) {
     const finalization = message.finalization || incoming.finalizations?.[matchId];
     const existing = appState().finalizations?.[matchId];
 
-    if (!matchId || !isFinalizedRecord(finalization)) return;
+    if (!matchId || !isFinalizedRecord(finalization)) {
+      send(socket, {
+        type: 'finalize-rejected',
+        matchId,
+        message: 'No se recibio una finalizacion valida. Refresca la pagina e intenta de nuevo.',
+        values: sharedState.values
+      });
+      return;
+    }
     if (!cardsEditingEnabledFor(messageUsername(message))) {
       audit('finalize-rejected', { reason: 'cards-editing-disabled' }, matchId, messageUsername(message));
       send(socket, {
@@ -1426,20 +1434,32 @@ function handleMessage(socket, raw) {
       return;
     }
 
-    mergeIncomingState({
-      ...incoming,
-      finalizations: {
-        ...(incoming.finalizations || {}),
-        [matchId]: finalization
-      }
-    }, { allowFinalizeMatchId: matchId });
-    saveSharedState();
-    audit('finalize-match', {
-      result: finalization.result || '',
-      finalizedAt: finalization.finalizedAt || '',
-      finalizedBy: finalization.finalizedBy || ''
-    }, matchId, messageUsername(message));
-    broadcast({ type: 'state', values: sharedState.values });
+    try {
+      mergeIncomingState({
+        ...incoming,
+        finalizations: {
+          ...(incoming.finalizations || {}),
+          [matchId]: finalization
+        }
+      }, { allowFinalizeMatchId: matchId });
+      saveSharedState();
+      audit('finalize-match', {
+        result: finalization.result || '',
+        finalizedAt: finalization.finalizedAt || '',
+        finalizedBy: finalization.finalizedBy || ''
+      }, matchId, messageUsername(message));
+      broadcast({ type: 'state', values: sharedState.values });
+    } catch (error) {
+      console.error('No fue posible finalizar tarjeta', error);
+      sharedState = composeStateFromDb();
+      audit('finalize-rejected', { reason: 'save-error', message: error.message || '' }, matchId, messageUsername(message));
+      send(socket, {
+        type: 'finalize-rejected',
+        matchId,
+        message: 'No se pudo guardar la finalizacion en el servidor. Refresca la pagina e intenta de nuevo.',
+        values: sharedState.values
+      });
+    }
     return;
   }
 
