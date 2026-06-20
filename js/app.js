@@ -696,9 +696,9 @@ function renderCards() {
       const matchNumber = match.title.match(/#\d+$/)?.[0] || match.title;
       node.querySelector('.badge').textContent = match.type;
       node.querySelector('h3').textContent = matchNumber;
-      const pdfUrl = `/api/matches/${encodeURIComponent(match.id)}/pdf?user=${encodeURIComponent(currentUsername())}`;
+      const printUrl = `/api/matches/${encodeURIComponent(match.id)}/print?user=${encodeURIComponent(currentUsername())}`;
       const actions = isFinalized(match.id)
-        ? `${canEditMatch(match) ? `<a class="btn secondary card-download" href="${pdfUrl}" target="_blank" rel="noopener">Descargar PDF</a>` : ''}
+        ? `${canEditMatch(match) ? `<a class="btn secondary card-download" href="${printUrl}" target="_blank" rel="noopener">Descargar PDF</a>` : ''}
           <button class="btn secondary card-action" type="button" data-card-action="unlock" data-match="${match.id}">Abrir tarjeta</button>`
         : isFinalizationPending(match.id)
           ? '<button class="btn secondary card-action" type="button" disabled>Finalizando...</button>'

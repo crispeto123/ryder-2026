@@ -784,6 +784,372 @@ function pdfLinesForMatch(match, finalization) {
   return lines;
 }
 
+function htmlEscape(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function printScoreRows(match) {
+  const values = appState();
+  const scores = values.values?.[match.id] || {};
+  const tigers = Array.isArray(scores.tigers) ? scores.tigers : [];
+  const firmas = Array.isArray(scores.firmas) ? scores.firmas : [];
+  return Array.from({ length: Number(match.holes || 0) }, (_, index) => {
+    const tigerScore = String(tigers[index] ?? '').trim();
+    const firmaScore = String(firmas[index] ?? '').trim();
+    const tigerNumber = Number(tigerScore);
+    const firmaNumber = Number(firmaScore);
+    let result = '-';
+    let className = 'empty';
+    if (tigerScore && firmaScore && Number.isFinite(tigerNumber) && Number.isFinite(firmaNumber)) {
+      if (tigerNumber === firmaNumber) {
+        result = 'AS';
+        className = 'as';
+      } else if (tigerNumber < firmaNumber) {
+        result = 'TIGERS';
+        className = 'tigers';
+      } else {
+        result = 'FIRMAS';
+        className = 'firmas';
+      }
+    }
+    return {
+      hole: `H${index + 1}`,
+      tigerScore: tigerScore || '-',
+      firmaScore: firmaScore || '-',
+      result,
+      className
+    };
+  });
+}
+
+function signatureBlock(teamLabel, signature) {
+  return `
+    <section class="signature-box">
+      <h3>${htmlEscape(teamLabel)}</h3>
+      ${signature ? `<img src="${htmlEscape(signature)}" alt="Firma ${htmlEscape(teamLabel)}">` : '<span>Sin firma registrada</span>'}
+    </section>
+  `;
+}
+
+function buildMatchPrintHtml(match, finalization) {
+  const values = appState();
+  const roster = matchRoster(match, values);
+  const rows = printScoreRows(match).map(row => `
+    <tr>
+      <td>${htmlEscape(row.hole)}</td>
+      <td>${htmlEscape(row.tigerScore)}</td>
+      <td>${htmlEscape(row.firmaScore)}</td>
+      <td><span class="result-pill ${htmlEscape(row.className)}">${htmlEscape(row.result)}</span></td>
+    </tr>
+  `).join('');
+  const finalizedAt = finalization.finalizedAt
+    ? new Date(finalization.finalizedAt).toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short' })
+    : '-';
+  const result = finalization.result || 'FINALIZADO';
+  return `<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${htmlEscape(match.title)} - Tarjeta finalizada</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --navy: #0f2138;
+      --navy-2: #162b46;
+      --line: #2f4564;
+      --text: #eef5ff;
+      --muted: #b8c5d9;
+      --gold: #f59e0b;
+      --red: #ef4444;
+      --blue: #3b82f6;
+      --paper: #f8fafc;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      background: var(--navy);
+      color: var(--text);
+    }
+    .page {
+      width: min(980px, calc(100% - 32px));
+      margin: 24px auto;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: linear-gradient(180deg, #132946 0%, #0f2138 100%);
+      overflow: hidden;
+      box-shadow: 0 18px 45px rgba(0, 0, 0, 0.28);
+    }
+    .actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      padding: 14px 18px 0;
+    }
+    .actions button {
+      border: 0;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-weight: 800;
+      color: #081423;
+      background: var(--gold);
+      cursor: pointer;
+    }
+    header {
+      padding: 18px 22px 12px;
+      text-align: center;
+    }
+    .title {
+      margin: 0;
+      font-size: 34px;
+      letter-spacing: 0;
+      font-weight: 900;
+    }
+    .subtitle {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+    .scoreboard {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+      align-items: center;
+      gap: 18px;
+      padding: 10px 22px 20px;
+    }
+    .team-card {
+      min-height: 176px;
+      border-radius: 16px;
+      background: var(--paper);
+      color: #172033;
+      display: grid;
+      grid-template-columns: 118px minmax(0, 1fr);
+      align-items: center;
+      gap: 16px;
+      padding: 16px;
+      border: 1px solid #dbe4f0;
+    }
+    .team-card img {
+      width: 112px;
+      height: 112px;
+      object-fit: contain;
+      display: block;
+    }
+    .team-name {
+      font-size: 20px;
+      font-weight: 900;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+      word-break: break-word;
+    }
+    .players {
+      min-height: 44px;
+      color: #41516a;
+      font-size: 15px;
+      font-weight: 800;
+      line-height: 1.25;
+    }
+    .vs {
+      color: var(--gold);
+      font-size: 36px;
+      font-weight: 900;
+    }
+    .result {
+      margin: 0 22px 18px;
+      border: 1px solid rgba(245, 158, 11, 0.45);
+      border-radius: 14px;
+      padding: 14px 18px;
+      text-align: center;
+      font-size: 26px;
+      font-weight: 900;
+      color: var(--gold);
+      background: rgba(245, 158, 11, 0.08);
+      text-transform: uppercase;
+    }
+    .meta {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      padding: 0 22px 18px;
+    }
+    .meta div {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px 12px;
+      background: rgba(255, 255, 255, 0.035);
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .meta strong {
+      display: block;
+      margin-top: 4px;
+      color: var(--text);
+      font-size: 15px;
+    }
+    table {
+      width: calc(100% - 44px);
+      margin: 0 22px 20px;
+      border-collapse: collapse;
+      overflow: hidden;
+      border-radius: 12px;
+      background: #10233b;
+      border: 1px solid var(--line);
+    }
+    th, td {
+      padding: 10px 12px;
+      text-align: center;
+      border-bottom: 1px solid var(--line);
+      font-weight: 800;
+    }
+    th {
+      color: #dce8f8;
+      font-size: 13px;
+      text-transform: uppercase;
+      background: #132a48;
+    }
+    td { font-size: 16px; }
+    tr:last-child td { border-bottom: 0; }
+    .result-pill {
+      display: inline-block;
+      min-width: 76px;
+      border-radius: 999px;
+      padding: 6px 10px;
+      color: #071321;
+      background: #cbd5e1;
+    }
+    .result-pill.tigers { background: var(--red); color: white; }
+    .result-pill.firmas { background: var(--blue); color: white; }
+    .result-pill.as { background: var(--gold); color: #081423; }
+    .signatures {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      padding: 0 22px 24px;
+    }
+    .signature-box {
+      min-height: 154px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: #f8fafc;
+      color: #172033;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    .signature-box h3 {
+      margin: 0 0 8px;
+      font-size: 14px;
+      text-transform: uppercase;
+    }
+    .signature-box img {
+      width: 100%;
+      max-height: 104px;
+      object-fit: contain;
+    }
+    .signature-box span {
+      color: #64748b;
+      font-weight: 800;
+    }
+    .stamp {
+      position: fixed;
+      inset: auto 22px 18px auto;
+      border: 3px solid rgba(245, 158, 11, 0.75);
+      color: rgba(245, 158, 11, 0.9);
+      border-radius: 12px;
+      padding: 8px 14px;
+      font-size: 18px;
+      font-weight: 900;
+      transform: rotate(-6deg);
+      text-transform: uppercase;
+      pointer-events: none;
+    }
+    @media (max-width: 720px) {
+      .scoreboard, .meta, .signatures { grid-template-columns: 1fr; }
+      .vs { text-align: center; }
+      .team-card { grid-template-columns: 86px 1fr; min-height: 132px; }
+      .team-card img { width: 82px; height: 82px; }
+      .title { font-size: 28px; }
+    }
+    @media print {
+      @page { size: A4; margin: 10mm; }
+      body { background: white; }
+      .page {
+        width: 100%;
+        margin: 0;
+        border-radius: 0;
+        box-shadow: none;
+        break-inside: avoid;
+      }
+      .actions { display: none; }
+      .stamp { position: absolute; }
+      th, td { padding: 8px 10px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <div class="actions">
+      <button type="button" onclick="window.print()">Guardar como PDF</button>
+    </div>
+    <header>
+      <h1 class="title">RYDER 2026</h1>
+      <div class="subtitle">Tarjeta finalizada</div>
+    </header>
+    <section class="scoreboard">
+      <article class="team-card">
+        <img src="/assets/tigers-header.png" alt="Tigers">
+        <div>
+          <div class="team-name">Tigers</div>
+          <div class="players">${htmlEscape(roster.tigers || '-')}</div>
+        </div>
+      </article>
+      <div class="vs">VS</div>
+      <article class="team-card">
+        <img src="/assets/firmas-header.png" alt="Firmas">
+        <div>
+          <div class="team-name">Firmas</div>
+          <div class="players">${htmlEscape(roster.firmas || '-')}</div>
+        </div>
+      </article>
+    </section>
+    <section class="result">${htmlEscape(result)}</section>
+    <section class="meta">
+      <div>Modalidad<strong>${htmlEscape(match.type)}</strong></div>
+      <div>Partido<strong>${htmlEscape(match.title)}</strong></div>
+      <div>Finalizado<strong>${htmlEscape(finalizedAt)}</strong></div>
+    </section>
+    <table>
+      <thead>
+        <tr>
+          <th>Hoyo</th>
+          <th>Tigers</th>
+          <th>Firmas</th>
+          <th>Ganador</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <section class="signatures">
+      ${signatureBlock('Tigers', finalization.signatures?.tigers)}
+      ${signatureBlock('Firmas', finalization.signatures?.firmas)}
+    </section>
+  </main>
+  <div class="stamp">Finalizado</div>
+</body>
+</html>`;
+}
+
 function serveMatchPdf(url, res) {
   const matchId = decodeURIComponent(url.pathname.match(/^\/api\/matches\/([^/]+)\/pdf$/)?.[1] || '');
   const match = tournamentMatches().find(item => item.id === matchId);
@@ -815,6 +1181,35 @@ function serveMatchPdf(url, res) {
   return true;
 }
 
+function serveMatchPrint(url, res) {
+  const matchId = decodeURIComponent(url.pathname.match(/^\/api\/matches\/([^/]+)\/print$/)?.[1] || '');
+  const match = tournamentMatches().find(item => item.id === matchId);
+  const username = url.searchParams.get('user') || '';
+  if (!match) {
+    res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Partido no encontrado');
+    return true;
+  }
+  const finalization = appState().finalizations?.[match.id];
+  if (!isFinalizedRecord(finalization)) {
+    res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Solo se pueden imprimir tarjetas finalizadas');
+    return true;
+  }
+  if (!matchUserCanDownload(match, username)) {
+    res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('No tienes acceso a esta tarjeta');
+    return true;
+  }
+  const body = buildMatchPrintHtml(match, finalization);
+  res.writeHead(200, {
+    'Cache-Control': 'no-store',
+    'Content-Type': 'text/html; charset=utf-8'
+  });
+  res.end(body);
+  return true;
+}
+
 function staticFilePath(requestUrl) {
   const url = new URL(requestUrl, `http://${HOST}:${PORT}`);
   const pathname = decodeURIComponent(url.pathname === '/' ? '/index.html' : url.pathname);
@@ -825,6 +1220,10 @@ function staticFilePath(requestUrl) {
 
 function serveStatic(req, res) {
   const url = new URL(req.url, `http://${HOST}:${PORT}`);
+  if (/^\/api\/matches\/[^/]+\/print$/.test(url.pathname)) {
+    serveMatchPrint(url, res);
+    return;
+  }
   if (/^\/api\/matches\/[^/]+\/pdf$/.test(url.pathname)) {
     serveMatchPdf(url, res);
     return;
