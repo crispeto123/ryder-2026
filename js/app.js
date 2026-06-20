@@ -1461,7 +1461,7 @@ function resetAll() {
   state.finalizations = {};
   ensureStateShape();
   saveState({ sync: false });
-  window.RyderSync?.reset();
+  window.RyderSync?.reset(currentUsername());
   renderAll();
   closeResetModal();
 }

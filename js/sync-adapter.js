@@ -58,11 +58,11 @@
         if (message.type === 'state') {
           listeners.forEach(listener => listener(message.values || {}));
         }
-        if (message.type === 'finalize-rejected') {
+        if (message.type === 'finalize-rejected' || message.type === 'sync-warning') {
           window.dispatchEvent(new CustomEvent('ryder-sync-warning', {
             detail: {
               matchId: message.matchId || '',
-              message: message.message || 'Esta tarjeta ya fue finalizada.',
+              message: message.message || 'No se pudo guardar el cambio.',
               values: message.values || {}
             }
           }));

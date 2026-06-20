@@ -1447,6 +1447,15 @@ function handleMessage(socket, raw) {
   }
 
   if (message.type === 'reset') {
+    if (!userIsAdmin(messageUsername(message))) {
+      audit('reset-rejected', { reason: 'not-admin' }, null, messageUsername(message));
+      send(socket, {
+        type: 'sync-warning',
+        message: 'Solo un administrador puede reiniciar tarjetas.',
+        values: sharedState.values
+      });
+      return;
+    }
     backupSharedState('before-reset');
     const current = appState();
     sharedState = {
