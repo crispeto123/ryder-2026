@@ -26,6 +26,7 @@ const state = {
 let applyingRemoteState = false;
 let signatureMatchId = '';
 let unlockMatchId = '';
+let downloadMatchId = '';
 const pendingFinalizations = new Set();
 const pendingFinalizationTimers = new Map();
 const pendingHoleSaves = new Map();
@@ -777,10 +778,9 @@ function renderCards() {
       const matchNumber = match.title.match(/#\d+$/)?.[0] || match.title;
       node.querySelector('.badge').textContent = match.type;
       node.querySelector('h3').textContent = matchNumber;
-      const printUrl = `/api/matches/${encodeURIComponent(match.id)}/print?user=${encodeURIComponent(currentUsername())}`;
       const saveStatus = matchSaveStatus(match.id);
       const actions = isFinalized(match.id)
-        ? `${canEditMatch(match) ? `<a class="btn secondary card-download" href="${printUrl}" target="_blank" rel="noopener">Descargar PDF</a>` : ''}
+        ? `${canEditMatch(match) ? `<button class="btn secondary card-download card-action" type="button" data-card-action="download" data-match="${match.id}">Descargar Tarjeta</button>` : ''}
           <button class="btn secondary card-action" type="button" data-card-action="unlock" data-match="${match.id}">Abrir tarjeta</button>`
         : isFinalizationPending(match.id)
           ? '<button class="btn secondary card-action" type="button" disabled>Finalizando...</button>'
@@ -1066,6 +1066,24 @@ function closeUnlockModal() {
   unlockMatchId = '';
 }
 
+function openDownloadModal(matchId) {
+  const match = state.matches.find(item => item.id === matchId);
+  if (!match || !isFinalized(match.id) || !canEditMatch(match)) return;
+  downloadMatchId = match.id;
+  const user = encodeURIComponent(currentUsername());
+  const encodedMatch = encodeURIComponent(match.id);
+  document.getElementById('downloadMatchLabel').textContent = `${match.title} - ${winnerLabel(match)}`;
+  document.getElementById('downloadImageLink').href = `/api/matches/${encodedMatch}/image?user=${user}`;
+  document.getElementById('downloadImageLink').setAttribute('download', `${match.id}-tarjeta.svg`);
+  document.getElementById('downloadPdfLink').href = `/api/matches/${encodedMatch}/print?user=${user}`;
+  document.getElementById('downloadModal').hidden = false;
+}
+
+function closeDownloadModal() {
+  document.getElementById('downloadModal').hidden = true;
+  downloadMatchId = '';
+}
+
 function unlockCurrentMatch() {
   const user = findUser(document.getElementById('unlockUser').value);
   const password = document.getElementById('unlockPassword').value;
@@ -1086,6 +1104,7 @@ function onCardAction(event) {
   if (!button) return;
   if (button.dataset.cardAction === 'finalize') openSignatureModal(button.dataset.match);
   if (button.dataset.cardAction === 'unlock') openUnlockModal(button.dataset.match);
+  if (button.dataset.cardAction === 'download') openDownloadModal(button.dataset.match);
 }
 
 function bindSignaturePad() {
@@ -1550,6 +1569,7 @@ function bindEvents() {
   document.getElementById('btnCancelSignature').addEventListener('click', closeSignatureModal);
   document.getElementById('btnConfirmSignature').addEventListener('click', finalizeCurrentMatch);
   document.getElementById('btnCancelUnlock').addEventListener('click', closeUnlockModal);
+  document.getElementById('btnCancelDownload').addEventListener('click', closeDownloadModal);
   document.getElementById('btnConfirmUnlock').addEventListener('click', unlockCurrentMatch);
   document.getElementById('unlockUser').addEventListener('keydown', event => {
     if (event.key === 'Enter') document.getElementById('unlockPassword').focus();

@@ -798,6 +798,20 @@ function htmlEscape(value) {
     .replace(/'/g, '&#039;');
 }
 
+function svgEscape(value) {
+  return htmlEscape(value);
+}
+
+function assetDataUri(fileName) {
+  try {
+    const filePath = path.join(ROOT, 'assets', fileName);
+    const data = fs.readFileSync(filePath).toString('base64');
+    return `data:image/png;base64,${data}`;
+  } catch {
+    return '';
+  }
+}
+
 function printScoreRows(match) {
   const values = appState();
   const scores = values.values?.[match.id] || {};
@@ -821,6 +835,96 @@ function signatureBlock(teamLabel, signature) {
       ${signature ? `<img src="${htmlEscape(signature)}" alt="Firma ${htmlEscape(teamLabel)}">` : '<span>Sin firma registrada</span>'}
     </section>
   `;
+}
+
+function wrapSvgText(text, maxChars = 28, maxLines = 2) {
+  const words = String(text || '-').split(/\s+/).filter(Boolean);
+  const lines = [];
+  let current = '';
+  words.forEach(word => {
+    const next = current ? `${current} ${word}` : word;
+    if (next.length > maxChars && current) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = next;
+    }
+  });
+  if (current) lines.push(current);
+  return lines.slice(0, maxLines);
+}
+
+function svgTextLines(text, x, y, options = {}) {
+  const lines = wrapSvgText(text, options.maxChars || 28, options.maxLines || 2);
+  return lines.map((line, index) =>
+    `<text x="${x}" y="${y + (index * (options.lineHeight || 24))}" text-anchor="${options.anchor || 'middle'}" class="${options.className || ''}">${svgEscape(line)}</text>`
+  ).join('');
+}
+
+function buildMatchImageSvg(match, finalization) {
+  const values = appState();
+  const roster = matchRoster(match, values);
+  const rows = printScoreRows(match);
+  const rowHeight = rows.length > 9 ? 28 : 34;
+  const tableY = 430;
+  const signatureY = tableY + 58 + (rows.length * rowHeight) + 34;
+  const height = signatureY + 170;
+  const tigersLogo = assetDataUri('tigers-header.png');
+  const firmasLogo = assetDataUri('firmas-header.png');
+  const finalizedAt = formatColombiaDateTime(finalization.finalizedAt);
+  const tableRows = rows.map((row, index) => {
+    const y = tableY + 58 + (index * rowHeight);
+    return `
+      <rect x="54" y="${y - 22}" width="852" height="${rowHeight}" class="${index % 2 ? 'row alt' : 'row'}"/>
+      <text x="142" y="${y}" class="cell">${svgEscape(row.hole)}</text>
+      <text x="424" y="${y}" class="cell score">${svgEscape(row.tigerScore)}</text>
+      <text x="704" y="${y}" class="cell score">${svgEscape(row.firmaScore)}</text>
+    `;
+  }).join('');
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="${height}" viewBox="0 0 960 ${height}">
+  <defs>
+    <style>
+      .bg{fill:#0f2138}.panel{fill:#132946;stroke:#2f4564;stroke-width:2}.card{fill:#f8fafc;stroke:#dbe4f0;stroke-width:2}.title{font:900 42px Arial,Helvetica,sans-serif;fill:#eef5ff}.sub{font:800 15px Arial,Helvetica,sans-serif;fill:#b8c5d9;text-transform:uppercase}.team{font:900 22px Arial,Helvetica,sans-serif;fill:#172033}.players{font:800 17px Arial,Helvetica,sans-serif;fill:#41516a}.vs{font:900 42px Arial,Helvetica,sans-serif;fill:#f59e0b}.result{font:900 28px Arial,Helvetica,sans-serif;fill:#f59e0b}.metaLabel{font:700 13px Arial,Helvetica,sans-serif;fill:#b8c5d9}.metaValue{font:900 15px Arial,Helvetica,sans-serif;fill:#eef5ff}.head{fill:#10233b;stroke:#2f4564;stroke-width:1}.headText{font:900 14px Arial,Helvetica,sans-serif;fill:#dce8f8}.row{fill:#10233b}.row.alt{fill:#132a48}.cell{font:800 16px Arial,Helvetica,sans-serif;fill:#eef5ff;text-anchor:middle}.score{font-size:20px}.sigTitle{font:900 14px Arial,Helvetica,sans-serif;fill:#172033}.stamp{font:900 24px Arial,Helvetica,sans-serif;fill:#f59e0b}
+    </style>
+  </defs>
+  <rect width="960" height="${height}" class="bg"/>
+  <rect x="24" y="24" width="912" height="${height - 48}" rx="22" class="panel"/>
+  <text x="480" y="82" text-anchor="middle" class="title">RYDER 2026</text>
+  <text x="480" y="112" text-anchor="middle" class="sub">Tarjeta finalizada</text>
+  <rect x="54" y="140" width="348" height="154" rx="18" class="card"/>
+  ${tigersLogo ? `<image href="${tigersLogo}" x="78" y="166" width="104" height="104" preserveAspectRatio="xMidYMid meet"/>` : ''}
+  <text x="276" y="184" text-anchor="middle" class="team">TIGERS</text>
+  ${svgTextLines(roster.tigers || '-', 276, 218, { className: 'players', maxChars: 24 })}
+  <text x="480" y="232" text-anchor="middle" class="vs">VS</text>
+  <rect x="558" y="140" width="348" height="154" rx="18" class="card"/>
+  ${firmasLogo ? `<image href="${firmasLogo}" x="582" y="166" width="104" height="104" preserveAspectRatio="xMidYMid meet"/>` : ''}
+  <text x="780" y="184" text-anchor="middle" class="team">FIRMAS</text>
+  ${svgTextLines(roster.firmas || '-', 780, 218, { className: 'players', maxChars: 24 })}
+  <rect x="54" y="318" width="852" height="52" rx="14" fill="rgba(245,158,11,0.08)" stroke="rgba(245,158,11,0.55)" stroke-width="2"/>
+  <text x="480" y="353" text-anchor="middle" class="result">${svgEscape(finalization.result || 'FINALIZADO')}</text>
+  <text x="120" y="402" class="metaLabel">Modalidad</text>
+  <text x="120" y="424" class="metaValue">${svgEscape(match.type)}</text>
+  <text x="390" y="402" class="metaLabel">Partido</text>
+  <text x="390" y="424" class="metaValue">${svgEscape(match.title)}</text>
+  <text x="650" y="402" class="metaLabel">Finalizado</text>
+  <text x="650" y="424" class="metaValue">${svgEscape(finalizedAt)}</text>
+  <rect x="54" y="${tableY}" width="852" height="42" class="head"/>
+  <text x="142" y="${tableY + 27}" class="headText" text-anchor="middle">HOYO</text>
+  <text x="424" y="${tableY + 27}" class="headText" text-anchor="middle">TIGERS</text>
+  <text x="704" y="${tableY + 27}" class="headText" text-anchor="middle">FIRMAS</text>
+  ${tableRows}
+  <rect x="54" y="${signatureY}" width="400" height="118" rx="14" class="card"/>
+  <text x="254" y="${signatureY + 28}" text-anchor="middle" class="sigTitle">FIRMA TIGERS</text>
+  ${finalization.signatures?.tigers ? `<image href="${svgEscape(finalization.signatures.tigers)}" x="78" y="${signatureY + 38}" width="352" height="64" preserveAspectRatio="xMidYMid meet"/>` : ''}
+  <rect x="506" y="${signatureY}" width="400" height="118" rx="14" class="card"/>
+  <text x="706" y="${signatureY + 28}" text-anchor="middle" class="sigTitle">FIRMA FIRMAS</text>
+  ${finalization.signatures?.firmas ? `<image href="${svgEscape(finalization.signatures.firmas)}" x="530" y="${signatureY + 38}" width="352" height="64" preserveAspectRatio="xMidYMid meet"/>` : ''}
+  <g transform="translate(744 ${height - 84}) rotate(-6)">
+    <rect x="0" y="0" width="156" height="44" rx="10" fill="none" stroke="#f59e0b" stroke-width="4"/>
+    <text x="78" y="30" text-anchor="middle" class="stamp">FINALIZADO</text>
+  </g>
+</svg>`;
 }
 
 function buildMatchPrintHtml(match, finalization) {
@@ -1182,6 +1286,36 @@ function serveMatchPrint(url, res) {
   return true;
 }
 
+function serveMatchImage(url, res) {
+  const matchId = decodeURIComponent(url.pathname.match(/^\/api\/matches\/([^/]+)\/image$/)?.[1] || '');
+  const match = tournamentMatches().find(item => item.id === matchId);
+  const username = url.searchParams.get('user') || '';
+  if (!match) {
+    res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Partido no encontrado');
+    return true;
+  }
+  const finalization = appState().finalizations?.[match.id];
+  if (!isFinalizedRecord(finalization)) {
+    res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Solo se pueden descargar tarjetas finalizadas');
+    return true;
+  }
+  if (!matchUserCanDownload(match, username)) {
+    res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('No tienes acceso a esta tarjeta');
+    return true;
+  }
+  const body = buildMatchImageSvg(match, finalization);
+  res.writeHead(200, {
+    'Cache-Control': 'no-store',
+    'Content-Type': 'image/svg+xml; charset=utf-8',
+    'Content-Disposition': `attachment; filename="${match.id}-tarjeta.svg"`
+  });
+  res.end(body);
+  return true;
+}
+
 function staticFilePath(requestUrl) {
   const url = new URL(requestUrl, `http://${HOST}:${PORT}`);
   const pathname = decodeURIComponent(url.pathname === '/' ? '/index.html' : url.pathname);
@@ -1194,6 +1328,10 @@ function serveStatic(req, res) {
   const url = new URL(req.url, `http://${HOST}:${PORT}`);
   if (/^\/api\/matches\/[^/]+\/print$/.test(url.pathname)) {
     serveMatchPrint(url, res);
+    return;
+  }
+  if (/^\/api\/matches\/[^/]+\/image$/.test(url.pathname)) {
+    serveMatchImage(url, res);
     return;
   }
   if (/^\/api\/matches\/[^/]+\/pdf$/.test(url.pathname)) {

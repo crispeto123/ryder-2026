@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Ryder 2026 | Tabla de Puntos</title>
-  <link rel="stylesheet" href="css/styles.css?v=20260620-22" />
+  <link rel="stylesheet" href="css/styles.css?v=20260620-23" />
 </head>
 <body>
   <header class="app-header">
@@ -287,8 +287,20 @@
     </div>
   </div>
 
+  <div id="downloadModal" class="modal-backdrop" hidden>
+    <div class="modal">
+      <h2>Descargar tarjeta</h2>
+      <p id="downloadMatchLabel" class="modal-hint"></p>
+      <div class="modal-actions download-actions">
+        <a id="downloadImageLink" class="btn" href="#" target="_blank" rel="noopener" download>Imagen</a>
+        <a id="downloadPdfLink" class="btn secondary" href="#" target="_blank" rel="noopener">PDF</a>
+        <button id="btnCancelDownload" class="btn secondary" type="button">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
   <script src="data/matches.js"></script>
-  <script src="js/sync-adapter.js?v=20260620-22"></script>
-  <script src="js/app.js?v=20260620-22"></script>
+  <script src="js/sync-adapter.js?v=20260620-23"></script>
+  <script src="js/app.js?v=20260620-23"></script>
 </body>
 </html>
