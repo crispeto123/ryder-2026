@@ -1392,8 +1392,7 @@ function handleMessage(socket, raw) {
 
   if (message.type === 'finalize-match') {
     const matchId = message.matchId;
-    const incoming = message.values || {};
-    const finalization = message.finalization || incoming.finalizations?.[matchId];
+    const finalization = message.finalization || message.values?.finalizations?.[matchId];
     const existing = appState().finalizations?.[matchId];
 
     if (!matchId || !isFinalizedRecord(finalization)) {
@@ -1435,13 +1434,16 @@ function handleMessage(socket, raw) {
     }
 
     try {
-      mergeIncomingState({
-        ...incoming,
-        finalizations: {
-          ...(incoming.finalizations || {}),
-          [matchId]: finalization
+      const current = appState();
+      sharedState = {
+        values: {
+          ...current,
+          finalizations: {
+            ...(current.finalizations || {}),
+            [matchId]: finalization
+          }
         }
-      }, { allowFinalizeMatchId: matchId });
+      };
       saveSharedState();
       audit('finalize-match', {
         result: finalization.result || '',

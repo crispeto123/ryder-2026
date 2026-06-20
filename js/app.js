@@ -961,6 +961,18 @@ function signatureCanvas(team) {
   return document.getElementById(team === 'firmas' ? 'signatureCanvasFirmas' : 'signatureCanvasTigers');
 }
 
+function compressedSignature(team) {
+  const source = signatureCanvas(team);
+  const target = document.createElement('canvas');
+  target.width = 360;
+  target.height = 124;
+  const ctx = target.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, target.width, target.height);
+  ctx.drawImage(source, 0, 0, target.width, target.height);
+  return target.toDataURL('image/jpeg', 0.72);
+}
+
 function clearSignatureCanvas(team) {
   if (!team) {
     clearSignatureCanvas('tigers');
@@ -1000,6 +1012,12 @@ function finalizeCurrentMatch() {
     document.getElementById('signatureError').textContent = 'Esta tarjeta aun no se puede finalizar. Debe estar definida por Match Play o tener todos los hoyos jugados.';
     return;
   }
+  if (matchSaveStatus(match.id)) {
+    document.getElementById('signatureError').hidden = false;
+    document.getElementById('signatureError').textContent = 'Espera a que todos los hoyos queden guardados antes de finalizar.';
+    window.RyderSync?.refresh?.();
+    return;
+  }
   if (!signatureInk.tigers || !signatureInk.firmas) {
     document.getElementById('signatureError').hidden = false;
     document.getElementById('signatureError').textContent = 'Dibuja la firma de Tigers y Firmas antes de finalizar.';
@@ -1009,20 +1027,13 @@ function finalizeCurrentMatch() {
     finalized: true,
     result: winnerLabel(match, calc),
     signatures: {
-      tigers: signatureCanvas('tigers').toDataURL('image/png'),
-      firmas: signatureCanvas('firmas').toDataURL('image/png')
+      tigers: compressedSignature('tigers'),
+      firmas: compressedSignature('firmas')
     },
     finalizedAt: new Date().toISOString(),
     finalizedBy: currentUsername()
   };
-  const nextValues = {
-    ...stateSnapshot(),
-    finalizations: {
-      ...state.finalizations,
-      [match.id]: finalization
-    }
-  };
-  const sent = window.RyderSync?.finalize?.(match.id, nextValues, finalization, currentUsername());
+  const sent = window.RyderSync?.finalize?.(match.id, {}, finalization, currentUsername());
   if (!sent) {
     document.getElementById('signatureError').hidden = false;
     document.getElementById('signatureError').textContent = 'Sin conexion con el servidor. No se puede finalizar.';
