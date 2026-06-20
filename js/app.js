@@ -477,6 +477,14 @@ function matchHasPlayer(match, search) {
   });
 }
 
+function matchIncludesCurrentUser(match) {
+  const userName = normalizeSearch(currentUserName());
+  if (!userName) return false;
+  return [teamName(match, 'tigers'), teamName(match, 'firmas')]
+    .flatMap(parseSelection)
+    .some(playerName => normalizeSearch(playerName) === userName);
+}
+
 function filteredMatches(view) {
   const typeFilter = view === 'resultados' ? state.resultsFilter : state.cardsFilter;
   const teamSearch = view === 'resultados' ? state.resultsTeamSearch : state.cardsTeamSearch;
@@ -488,6 +496,12 @@ function filteredMatches(view) {
   );
   if (view === 'tarjetas' && isLoggedIn() && !isAdminUser()) {
     return matches.filter(match => canEditMatch(match));
+  }
+  if (view === 'tarjetas' && isLoggedIn() && isAdminUser()) {
+    return matches
+      .map((match, index) => ({ match, index, mine: matchIncludesCurrentUser(match) }))
+      .sort((a, b) => Number(b.mine) - Number(a.mine) || a.index - b.index)
+      .map(item => item.match);
   }
   return matches;
 }
