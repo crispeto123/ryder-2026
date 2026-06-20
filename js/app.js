@@ -686,8 +686,10 @@ function renderCards() {
       const matchNumber = match.title.match(/#\d+$/)?.[0] || match.title;
       node.querySelector('.badge').textContent = match.type;
       node.querySelector('h3').textContent = matchNumber;
+      const pdfUrl = `/api/matches/${encodeURIComponent(match.id)}/pdf?user=${encodeURIComponent(currentUsername())}`;
       const actions = isFinalized(match.id)
-        ? `<button class="btn secondary card-action" type="button" data-card-action="unlock" data-match="${match.id}">Abrir tarjeta</button>`
+        ? `${canEditMatch(match) ? `<a class="btn secondary card-download" href="${pdfUrl}" target="_blank" rel="noopener">Descargar PDF</a>` : ''}
+          <button class="btn secondary card-action" type="button" data-card-action="unlock" data-match="${match.id}">Abrir tarjeta</button>`
         : canWriteMatch(match) && canFinalizeMatch(match, calc)
           ? `<button class="btn card-action" type="button" data-card-action="finalize" data-match="${match.id}">Finalizar</button>`
           : '';

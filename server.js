@@ -430,12 +430,16 @@ function messageUsername(message) {
   return String(message?.username || message?.finalization?.finalizedBy || '').trim();
 }
 
-function userIsAdmin(username) {
+function findUserRecord(username) {
   const key = normalizeName(username);
-  if (!key) return false;
-  return [...loadSystemUsersFromDb(), ...loadPlayersFromDb()].some(user =>
-    (normalizeName(user.username) === key || normalizeName(user.name) === key) && Boolean(user.isAdmin)
-  );
+  if (!key) return null;
+  return [...loadSystemUsersFromDb(), ...loadPlayersFromDb()].find(user =>
+    normalizeName(user.username) === key || normalizeName(user.name) === key
+  ) || null;
+}
+
+function userIsAdmin(username) {
+  return Boolean(findUserRecord(username)?.isAdmin);
 }
 
 function cardsEditingEnabledFor(username) {
@@ -683,6 +687,134 @@ function setHoleValue(message) {
   return { matchId, team, hole, previousValue, nextValue };
 }
 
+function matchRoster(match, values = appState()) {
+  const empty = { tigers: '', firmas: '' };
+  if (!match) return empty;
+  if (match.type === 'Individual') {
+    return (values.individuals || []).find(item => Number(item.id) === Number(match.individualId)) || empty;
+  }
+  return (values.pairs || []).find(item => Number(item.id) === Number(match.pairId)) || empty;
+}
+
+function matchUserCanDownload(match, username) {
+  if (userIsAdmin(username)) return true;
+  const user = findUserRecord(username);
+  const userName = normalizeName(user?.name || username);
+  if (!userName) return false;
+  const roster = matchRoster(match);
+  return [roster.tigers, roster.firmas]
+    .flatMap(splitSelection)
+    .some(playerName => normalizeName(playerName) === userName);
+}
+
+function asciiText(value) {
+  return String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\x20-\x7e]/g, '')
+    .trim();
+}
+
+function pdfEscape(value) {
+  return asciiText(value).replace(/[\\()]/g, '\\$&');
+}
+
+function buildSimplePdf(lines) {
+  const content = [
+    'BT',
+    '/F1 12 Tf',
+    '50 790 Td',
+    '15 TL',
+    ...lines.map((line, index) => `${index ? 'T* ' : ''}(${pdfEscape(line)}) Tj`),
+    'ET'
+  ].join('\n');
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    `<< /Length ${Buffer.byteLength(content, 'latin1')} >>\nstream\n${content}\nendstream`
+  ];
+  let pdf = '%PDF-1.4\n';
+  const offsets = [0];
+  objects.forEach((object, index) => {
+    offsets.push(Buffer.byteLength(pdf, 'latin1'));
+    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  });
+  const xrefOffset = Buffer.byteLength(pdf, 'latin1');
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  offsets.slice(1).forEach(offset => {
+    pdf += `${String(offset).padStart(10, '0')} 00000 n \n`;
+  });
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+  return Buffer.from(pdf, 'latin1');
+}
+
+function pdfLinesForMatch(match, finalization) {
+  const values = appState();
+  const roster = matchRoster(match, values);
+  const scores = values.values?.[match.id] || {};
+  const tigers = Array.isArray(scores.tigers) ? scores.tigers : [];
+  const firmas = Array.isArray(scores.firmas) ? scores.firmas : [];
+  const lines = [
+    'RYDER 2026 - TARJETA FINALIZADA',
+    '',
+    `Modalidad: ${match.type}`,
+    `Partido: ${match.title}`,
+    `Tigers: ${roster.tigers || '-'}`,
+    `Firmas: ${roster.firmas || '-'}`,
+    `Resultado: ${finalization.result || '-'}`,
+    `Finalizado por: ${finalization.finalizedBy || '-'}`,
+    `Fecha finalizacion: ${finalization.finalizedAt || '-'}`,
+    `Firmas registradas: Tigers ${finalization.signatures?.tigers ? 'SI' : 'NO'} / Firmas ${finalization.signatures?.firmas ? 'SI' : 'NO'}`,
+    '',
+    'Hoyo     Tigers     Firmas     Resultado'
+  ];
+  for (let index = 0; index < Number(match.holes || 0); index += 1) {
+    const tigerScore = String(tigers[index] ?? '').trim();
+    const firmaScore = String(firmas[index] ?? '').trim();
+    let result = '-';
+    const tigerNumber = Number(tigerScore);
+    const firmaNumber = Number(firmaScore);
+    if (tigerScore && firmaScore && Number.isFinite(tigerNumber) && Number.isFinite(firmaNumber)) {
+      result = tigerNumber === firmaNumber ? 'AS' : (tigerNumber < firmaNumber ? 'Tigers' : 'Firmas');
+    }
+    lines.push(`H${String(index + 1).padStart(2, '0')}      ${tigerScore || '-'}          ${firmaScore || '-'}          ${result}`);
+  }
+  return lines;
+}
+
+function serveMatchPdf(url, res) {
+  const matchId = decodeURIComponent(url.pathname.match(/^\/api\/matches\/([^/]+)\/pdf$/)?.[1] || '');
+  const match = tournamentMatches().find(item => item.id === matchId);
+  const username = url.searchParams.get('user') || '';
+  if (!match) {
+    res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Partido no encontrado');
+    return true;
+  }
+  const finalization = appState().finalizations?.[match.id];
+  if (!isFinalizedRecord(finalization)) {
+    res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Solo se pueden descargar tarjetas finalizadas');
+    return true;
+  }
+  if (!matchUserCanDownload(match, username)) {
+    res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('No tienes acceso a esta tarjeta');
+    return true;
+  }
+  const body = buildSimplePdf(pdfLinesForMatch(match, finalization));
+  res.writeHead(200, {
+    'Cache-Control': 'no-store',
+    'Content-Type': 'application/pdf',
+    'Content-Disposition': `attachment; filename="${match.id}-tarjeta.pdf"`,
+    'Content-Length': body.length
+  });
+  res.end(body);
+  return true;
+}
+
 function staticFilePath(requestUrl) {
   const url = new URL(requestUrl, `http://${HOST}:${PORT}`);
   const pathname = decodeURIComponent(url.pathname === '/' ? '/index.html' : url.pathname);
@@ -693,6 +825,10 @@ function staticFilePath(requestUrl) {
 
 function serveStatic(req, res) {
   const url = new URL(req.url, `http://${HOST}:${PORT}`);
+  if (/^\/api\/matches\/[^/]+\/pdf$/.test(url.pathname)) {
+    serveMatchPdf(url, res);
+    return;
+  }
   if (url.pathname === '/api/health') {
     const body = JSON.stringify({
       ok: true,
