@@ -452,6 +452,10 @@ function playerNamesInMatches() {
   ).filter(Boolean))];
 }
 
+function playerSearchNames() {
+  return [...new Set(state.players.map(player => player.name).filter(Boolean))];
+}
+
 function matchHasTeam(match, search) {
   const query = normalizeSearch(search);
   if (!query) return true;
@@ -466,7 +470,7 @@ function matchHasPlayer(match, search) {
   const query = normalizeSearch(search);
   if (!query) return true;
   const players = [teamName(match, 'tigers'), teamName(match, 'firmas')].flatMap(parseSelection);
-  const exactOption = playerNamesInMatches().some(name => normalizeSearch(name) === query);
+  const exactOption = playerSearchNames().some(name => normalizeSearch(name) === query);
   return players.some(name => {
     const normalizedName = normalizeSearch(name);
     return exactOption ? normalizedName === query : normalizedName.includes(query);
@@ -479,7 +483,7 @@ function filteredMatches(view) {
   const statusFilter = view === 'resultados' ? state.resultsStatusFilter : state.cardsStatusFilter;
   const matches = state.matches.filter(match =>
     (typeFilter === 'Todas' || match.type === typeFilter) &&
-    (view === 'tarjetas' ? matchHasPlayer(match, teamSearch) : matchHasTeam(match, teamSearch)) &&
+    matchHasPlayer(match, teamSearch) &&
     matchHasStatus(match, statusFilter)
   );
   if (view === 'tarjetas' && isLoggedIn() && !isAdminUser()) {
@@ -500,17 +504,15 @@ function matchHasStatus(match, statusFilter = 'Todos') {
 function renderTeamOptions() {
   const datalist = document.getElementById('teamOptions');
   if (!datalist) return;
-  const teams = teamNames().sort((a, b) =>
+  const players = playerSearchNames().sort((a, b) =>
     a.localeCompare(b, 'es-CO', { numeric: true })
   );
-  datalist.innerHTML = teams.map(team => `<option value="${escapeHtml(team)}"></option>`).join('');
+  const options = players.map(player => `<option value="${escapeHtml(player)}"></option>`).join('');
+  datalist.innerHTML = options;
 
   const playerSearchOptions = document.getElementById('playerSearchOptions');
   if (playerSearchOptions) {
-    playerSearchOptions.innerHTML = playerNamesInMatches()
-      .sort((a, b) => a.localeCompare(b, 'es-CO', { numeric: true }))
-      .map(name => `<option value="${escapeHtml(name)}"></option>`)
-      .join('');
+    playerSearchOptions.innerHTML = options;
   }
 
   ['tigers', 'firmas'].forEach(team => {
