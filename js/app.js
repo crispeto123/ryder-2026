@@ -173,8 +173,10 @@ function applyAccessControl() {
   if (resetButton) resetButton.hidden = !admin || tvOnly;
   const cardsEditingToggleWrap = document.getElementById('cardsEditingToggleWrap');
   const cardsEditingToggle = document.getElementById('cardsEditingToggle');
+  const tournamentStatus = document.getElementById('tournamentStatus');
   if (cardsEditingToggleWrap) cardsEditingToggleWrap.hidden = !admin || tvOnly;
   if (cardsEditingToggle) cardsEditingToggle.checked = cardsEditingEnabled();
+  if (tournamentStatus) tournamentStatus.hidden = !loggedIn || admin || tvOnly;
   const logoutButton = document.getElementById('btnLogout');
   if (logoutButton) logoutButton.hidden = !loggedIn;
   const userLabel = document.getElementById('currentUserLabel');
@@ -193,6 +195,12 @@ function applyAccessControl() {
 function renderSettingsControls() {
   const cardsEditingToggle = document.getElementById('cardsEditingToggle');
   if (cardsEditingToggle) cardsEditingToggle.checked = cardsEditingEnabled();
+  const tournamentStatus = document.getElementById('tournamentStatus');
+  if (tournamentStatus) {
+    const enabled = cardsEditingEnabled();
+    tournamentStatus.textContent = enabled ? 'EN TORNEO' : 'SIN EMPEZAR';
+    tournamentStatus.classList.toggle('is-active', enabled);
+  }
 }
 
 function mergePlayers(savedPlayers = []) {
