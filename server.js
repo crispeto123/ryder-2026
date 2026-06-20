@@ -765,23 +765,28 @@ function pdfLinesForMatch(match, finalization) {
     `Firmas: ${roster.firmas || '-'}`,
     `Resultado: ${finalization.result || '-'}`,
     `Finalizado por: ${finalization.finalizedBy || '-'}`,
-    `Fecha finalizacion: ${finalization.finalizedAt || '-'}`,
+    `Fecha finalizacion: ${formatColombiaDateTime(finalization.finalizedAt)}`,
     `Firmas registradas: Tigers ${finalization.signatures?.tigers ? 'SI' : 'NO'} / Firmas ${finalization.signatures?.firmas ? 'SI' : 'NO'}`,
     '',
-    'Hoyo     Tigers     Firmas     Resultado'
+    'Hoyo     Tigers     Firmas'
   ];
   for (let index = 0; index < Number(match.holes || 0); index += 1) {
     const tigerScore = String(tigers[index] ?? '').trim();
     const firmaScore = String(firmas[index] ?? '').trim();
-    let result = '-';
-    const tigerNumber = Number(tigerScore);
-    const firmaNumber = Number(firmaScore);
-    if (tigerScore && firmaScore && Number.isFinite(tigerNumber) && Number.isFinite(firmaNumber)) {
-      result = tigerNumber === firmaNumber ? 'AS' : (tigerNumber < firmaNumber ? 'Tigers' : 'Firmas');
-    }
-    lines.push(`H${String(index + 1).padStart(2, '0')}      ${tigerScore || '-'}          ${firmaScore || '-'}          ${result}`);
+    lines.push(`H${String(index + 1).padStart(2, '0')}      ${tigerScore || '-'}          ${firmaScore || '-'}`);
   }
   return lines;
+}
+
+function formatColombiaDateTime(value) {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+  return date.toLocaleString('es-CO', {
+    timeZone: 'America/Bogota',
+    dateStyle: 'medium',
+    timeStyle: 'short'
+  });
 }
 
 function htmlEscape(value) {
@@ -801,28 +806,10 @@ function printScoreRows(match) {
   return Array.from({ length: Number(match.holes || 0) }, (_, index) => {
     const tigerScore = String(tigers[index] ?? '').trim();
     const firmaScore = String(firmas[index] ?? '').trim();
-    const tigerNumber = Number(tigerScore);
-    const firmaNumber = Number(firmaScore);
-    let result = '-';
-    let className = 'empty';
-    if (tigerScore && firmaScore && Number.isFinite(tigerNumber) && Number.isFinite(firmaNumber)) {
-      if (tigerNumber === firmaNumber) {
-        result = 'AS';
-        className = 'as';
-      } else if (tigerNumber < firmaNumber) {
-        result = 'TIGERS';
-        className = 'tigers';
-      } else {
-        result = 'FIRMAS';
-        className = 'firmas';
-      }
-    }
     return {
       hole: `H${index + 1}`,
       tigerScore: tigerScore || '-',
-      firmaScore: firmaScore || '-',
-      result,
-      className
+      firmaScore: firmaScore || '-'
     };
   });
 }
@@ -844,12 +831,9 @@ function buildMatchPrintHtml(match, finalization) {
       <td>${htmlEscape(row.hole)}</td>
       <td>${htmlEscape(row.tigerScore)}</td>
       <td>${htmlEscape(row.firmaScore)}</td>
-      <td><span class="result-pill ${htmlEscape(row.className)}">${htmlEscape(row.result)}</span></td>
     </tr>
   `).join('');
-  const finalizedAt = finalization.finalizedAt
-    ? new Date(finalization.finalizedAt).toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short' })
-    : '-';
+  const finalizedAt = formatColombiaDateTime(finalization.finalizedAt);
   const result = finalization.result || 'FINALIZADO';
   return `<!doctype html>
 <html lang="es">
@@ -1018,17 +1002,6 @@ function buildMatchPrintHtml(match, finalization) {
     }
     td { font-size: 16px; }
     tr:last-child td { border-bottom: 0; }
-    .result-pill {
-      display: inline-block;
-      min-width: 76px;
-      border-radius: 999px;
-      padding: 6px 10px;
-      color: #071321;
-      background: #cbd5e1;
-    }
-    .result-pill.tigers { background: var(--red); color: white; }
-    .result-pill.firmas { background: var(--blue); color: white; }
-    .result-pill.as { background: var(--gold); color: #081423; }
     .signatures {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -1135,7 +1108,6 @@ function buildMatchPrintHtml(match, finalization) {
           <th>Hoyo</th>
           <th>Tigers</th>
           <th>Firmas</th>
-          <th>Ganador</th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
