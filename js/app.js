@@ -682,6 +682,13 @@ function playerInput(player, field) {
   return `<input class="player-input" type="${type}" value="${escapeHtml(player[field] || '')}" data-player="${player.id}" data-field="${field}" aria-label="${field} ${player.id}">`;
 }
 
+function playerPasswordInput(player) {
+  return `<div class="password-field">
+    <input class="player-input password-input" type="password" value="${escapeHtml(player.password || '')}" data-player="${player.id}" data-field="password" aria-label="password ${player.id}">
+    <button class="password-toggle" type="button" data-password-player="${player.id}" aria-label="Mostrar contrasena"></button>
+  </div>`;
+}
+
 function playerTeamSelect(player) {
   return `<select class="player-input" data-player="${player.id}" data-field="team" aria-label="equipo ${player.id}">
     <option value="Tigers" ${player.team === 'Tigers' ? 'selected' : ''}>Tigers</option>
@@ -708,7 +715,7 @@ function renderRoster() {
         <td><span class="status-flag ${playerSelectionStatus(player.name, 'pairs') ? 'on' : ''}">${playerSelectionStatus(player.name, 'pairs') ? 'True' : 'False'}</span></td>
         <td><span class="status-flag ${playerSelectionStatus(player.name, 'individuals') ? 'on' : ''}">${playerSelectionStatus(player.name, 'individuals') ? 'True' : 'False'}</span></td>
         <td>${playerInput(player, 'username')}</td>
-        <td>${playerInput(player, 'password')}</td>
+        <td>${playerPasswordInput(player)}</td>
         <td>${playerAdminSelect(player)}</td>
       </tr>
     `).join('');
@@ -1065,6 +1072,18 @@ function onPlayerInput(event) {
   renderCards();
 }
 
+function togglePlayerPassword(event) {
+  const button = event.target.closest('.password-toggle');
+  if (!button) return;
+  const field = button.closest('.password-field');
+  const input = field?.querySelector('.password-input');
+  if (!input) return;
+  const shouldHide = input.type === 'text';
+  input.type = shouldHide ? 'password' : 'text';
+  button.classList.toggle('is-visible', !shouldHide);
+  button.setAttribute('aria-label', shouldHide ? 'Mostrar contrasena' : 'Ocultar contrasena');
+}
+
 function addPlayer() {
   if (!canWriteOnline()) {
     warnOfflineWrite();
@@ -1263,6 +1282,7 @@ function bindEvents() {
   document.addEventListener('input', onRosterInput);
   document.addEventListener('input', onPlayerInput);
   document.addEventListener('change', onPlayerInput);
+  document.addEventListener('click', togglePlayerPassword);
   document.addEventListener('click', chooseRosterPlayer);
   document.addEventListener('click', removeRosterPlayer);
   document.addEventListener('click', event => {
