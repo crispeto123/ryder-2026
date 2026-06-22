@@ -1082,8 +1082,8 @@ function openDownloadModal(matchId) {
   const user = encodeURIComponent(currentUsername());
   const encodedMatch = encodeURIComponent(match.id);
   document.getElementById('downloadMatchLabel').textContent = `${match.title} - ${winnerLabel(match)}`;
-  document.getElementById('downloadImageLink').href = `/api/matches/${encodedMatch}/image?user=${user}`;
-  document.getElementById('downloadImageLink').setAttribute('download', `${match.id}-tarjeta.svg`);
+  document.getElementById('downloadImageLink').dataset.imageUrl = `/api/matches/${encodedMatch}/image?user=${user}`;
+  document.getElementById('downloadImageLink').dataset.fileName = `${match.id}-tarjeta.png`;
   document.getElementById('downloadPdfLink').href = `/api/matches/${encodedMatch}/print?user=${user}`;
   document.getElementById('downloadModal').hidden = false;
 }
@@ -1091,6 +1091,56 @@ function openDownloadModal(matchId) {
 function closeDownloadModal() {
   document.getElementById('downloadModal').hidden = true;
   downloadMatchId = '';
+}
+
+function downloadBlob(blob, fileName) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+async function downloadCardImage() {
+  const button = document.getElementById('downloadImageLink');
+  const imageUrl = button.dataset.imageUrl;
+  const fileName = button.dataset.fileName || 'tarjeta.png';
+  if (!imageUrl) return;
+  const previousText = button.textContent;
+  button.disabled = true;
+  button.textContent = 'Generando...';
+  try {
+    const response = await fetch(imageUrl, { cache: 'no-store' });
+    if (!response.ok) throw new Error('No fue posible generar la imagen.');
+    const svgText = await response.text();
+    const svgBlob = new Blob([svgText], { type: 'image/svg+xml;charset=utf-8' });
+    const svgUrl = URL.createObjectURL(svgBlob);
+    const image = new Image();
+    await new Promise((resolve, reject) => {
+      image.onload = resolve;
+      image.onerror = reject;
+      image.src = svgUrl;
+    });
+    const canvas = document.createElement('canvas');
+    canvas.width = image.naturalWidth || 960;
+    canvas.height = image.naturalHeight || 1200;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(image, 0, 0);
+    URL.revokeObjectURL(svgUrl);
+    const pngBlob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+    if (!pngBlob) throw new Error('No fue posible convertir la imagen.');
+    downloadBlob(pngBlob, fileName);
+    closeDownloadModal();
+  } catch (error) {
+    alert(error.message || 'No fue posible descargar la imagen.');
+    window.open(imageUrl, '_blank', 'noopener');
+  } finally {
+    button.disabled = false;
+    button.textContent = previousText;
+  }
 }
 
 function unlockCurrentMatch() {
@@ -1579,6 +1629,7 @@ function bindEvents() {
   document.getElementById('btnConfirmSignature').addEventListener('click', finalizeCurrentMatch);
   document.getElementById('btnCancelUnlock').addEventListener('click', closeUnlockModal);
   document.getElementById('btnCancelDownload').addEventListener('click', closeDownloadModal);
+  document.getElementById('downloadImageLink').addEventListener('click', downloadCardImage);
   document.getElementById('btnConfirmUnlock').addEventListener('click', unlockCurrentMatch);
   document.getElementById('unlockUser').addEventListener('keydown', event => {
     if (event.key === 'Enter') document.getElementById('unlockPassword').focus();

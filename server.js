@@ -861,31 +861,61 @@ function svgTextLines(text, x, y, options = {}) {
   ).join('');
 }
 
+function buildScoreGridSvg(rows, roster, startIndex, y) {
+  const visibleRows = rows.slice(startIndex, startIndex + 9);
+  const x = 54;
+  const width = 852;
+  const labelWidth = 150;
+  const holeWidth = (width - labelWidth) / 9;
+  const headerHeight = 34;
+  const rowHeight = 42;
+  const headerCells = visibleRows.map((row, index) => {
+    const cellX = x + labelWidth + (index * holeWidth);
+    return `
+      <rect x="${cellX}" y="${y}" width="${holeWidth}" height="${headerHeight}" class="gridHead"/>
+      <text x="${cellX + (holeWidth / 2)}" y="${y + 23}" class="gridHeadText">${svgEscape(row.hole)}</text>
+    `;
+  }).join('');
+  const scoreCells = (team, scoreKey, rowY) => visibleRows.map((row, index) => {
+    const cellX = x + labelWidth + (index * holeWidth);
+    return `
+      <rect x="${cellX}" y="${rowY}" width="${holeWidth}" height="${rowHeight}" class="gridCell"/>
+      <text x="${cellX + (holeWidth / 2)}" y="${rowY + 28}" class="gridScore">${svgEscape(row[scoreKey])}</text>
+    `;
+  }).join('');
+  return `
+    <rect x="${x}" y="${y}" width="${width}" height="${headerHeight + (rowHeight * 2)}" rx="12" class="gridBox"/>
+    <rect x="${x}" y="${y}" width="${labelWidth}" height="${headerHeight}" class="gridHead"/>
+    <text x="${x + (labelWidth / 2)}" y="${y + 23}" class="gridHeadText">EQUIPO</text>
+    ${headerCells}
+    <rect x="${x}" y="${y + headerHeight}" width="${labelWidth}" height="${rowHeight}" class="gridLabelCell"/>
+    <text x="${x + 14}" y="${y + headerHeight + 27}" class="gridTeam" text-anchor="start">${svgEscape(roster.tigers || 'Tigers')}</text>
+    ${scoreCells('tigers', 'tigerScore', y + headerHeight)}
+    <rect x="${x}" y="${y + headerHeight + rowHeight}" width="${labelWidth}" height="${rowHeight}" class="gridLabelCell alt"/>
+    <text x="${x + 14}" y="${y + headerHeight + rowHeight + 27}" class="gridTeam" text-anchor="start">${svgEscape(roster.firmas || 'Firmas')}</text>
+    ${scoreCells('firmas', 'firmaScore', y + headerHeight + rowHeight)}
+  `;
+}
+
 function buildMatchImageSvg(match, finalization) {
   const values = appState();
   const roster = matchRoster(match, values);
   const rows = printScoreRows(match);
-  const rowHeight = rows.length > 9 ? 28 : 34;
   const tableY = 430;
-  const signatureY = tableY + 58 + (rows.length * rowHeight) + 34;
+  const gridHeight = rows.length > 9 ? 254 : 118;
+  const signatureY = tableY + gridHeight + 34;
   const height = signatureY + 170;
   const tigersLogo = assetDataUri('tigers-header.png');
   const firmasLogo = assetDataUri('firmas-header.png');
   const finalizedAt = formatColombiaDateTime(finalization.finalizedAt);
-  const tableRows = rows.map((row, index) => {
-    const y = tableY + 58 + (index * rowHeight);
-    return `
-      <rect x="54" y="${y - 22}" width="852" height="${rowHeight}" class="${index % 2 ? 'row alt' : 'row'}"/>
-      <text x="142" y="${y}" class="cell">${svgEscape(row.hole)}</text>
-      <text x="424" y="${y}" class="cell score">${svgEscape(row.tigerScore)}</text>
-      <text x="704" y="${y}" class="cell score">${svgEscape(row.firmaScore)}</text>
-    `;
-  }).join('');
+  const scoreGrid = rows.length > 9
+    ? `${buildScoreGridSvg(rows, roster, 0, tableY)}${buildScoreGridSvg(rows, roster, 9, tableY + 136)}`
+    : buildScoreGridSvg(rows, roster, 0, tableY);
   return `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="960" height="${height}" viewBox="0 0 960 ${height}">
+<svg xmlns="http://www.w3.org/2000/svg" width="960px" height="${height}px" viewBox="0 0 960 ${height}">
   <defs>
     <style>
-      .bg{fill:#0f2138}.panel{fill:#132946;stroke:#2f4564;stroke-width:2}.card{fill:#f8fafc;stroke:#dbe4f0;stroke-width:2}.title{font:900 42px Arial,Helvetica,sans-serif;fill:#eef5ff}.sub{font:800 15px Arial,Helvetica,sans-serif;fill:#b8c5d9;text-transform:uppercase}.team{font:900 22px Arial,Helvetica,sans-serif;fill:#172033}.players{font:800 17px Arial,Helvetica,sans-serif;fill:#41516a}.vs{font:900 42px Arial,Helvetica,sans-serif;fill:#f59e0b}.result{font:900 28px Arial,Helvetica,sans-serif;fill:#f59e0b}.metaLabel{font:700 13px Arial,Helvetica,sans-serif;fill:#b8c5d9}.metaValue{font:900 15px Arial,Helvetica,sans-serif;fill:#eef5ff}.head{fill:#10233b;stroke:#2f4564;stroke-width:1}.headText{font:900 14px Arial,Helvetica,sans-serif;fill:#dce8f8}.row{fill:#10233b}.row.alt{fill:#132a48}.cell{font:800 16px Arial,Helvetica,sans-serif;fill:#eef5ff;text-anchor:middle}.score{font-size:20px}.sigTitle{font:900 14px Arial,Helvetica,sans-serif;fill:#172033}.stamp{font:900 24px Arial,Helvetica,sans-serif;fill:#f59e0b}
+      .bg{fill:#0f2138}.panel{fill:#132946;stroke:#2f4564;stroke-width:2}.card{fill:#f8fafc;stroke:#dbe4f0;stroke-width:2}.title{font:900 42px Arial,Helvetica,sans-serif;fill:#eef5ff}.sub{font:800 15px Arial,Helvetica,sans-serif;fill:#b8c5d9;text-transform:uppercase}.team{font:900 22px Arial,Helvetica,sans-serif;fill:#172033}.players{font:800 17px Arial,Helvetica,sans-serif;fill:#41516a}.vs{font:900 42px Arial,Helvetica,sans-serif;fill:#f59e0b}.result{font:900 28px Arial,Helvetica,sans-serif;fill:#f59e0b}.metaLabel{font:700 13px Arial,Helvetica,sans-serif;fill:#b8c5d9}.metaValue{font:900 15px Arial,Helvetica,sans-serif;fill:#eef5ff}.gridBox{fill:#10233b;stroke:#2f4564;stroke-width:1}.gridHead{fill:#132a48;stroke:#2f4564;stroke-width:1}.gridHeadText{font:900 13px Arial,Helvetica,sans-serif;fill:#dce8f8;text-anchor:middle}.gridCell{fill:#0d1726;stroke:#2f4564;stroke-width:1}.gridLabelCell{fill:#10233b;stroke:#2f4564;stroke-width:1}.gridLabelCell.alt{fill:#132a48}.gridTeam{font:900 14px Arial,Helvetica,sans-serif;fill:#eef5ff}.gridScore{font:900 20px Arial,Helvetica,sans-serif;fill:#eef5ff;text-anchor:middle}.sigTitle{font:900 14px Arial,Helvetica,sans-serif;fill:#172033}.stamp{font:900 24px Arial,Helvetica,sans-serif;fill:#f59e0b}
     </style>
   </defs>
   <rect width="960" height="${height}" class="bg"/>
@@ -909,11 +939,7 @@ function buildMatchImageSvg(match, finalization) {
   <text x="390" y="424" class="metaValue">${svgEscape(match.title)}</text>
   <text x="650" y="402" class="metaLabel">Finalizado</text>
   <text x="650" y="424" class="metaValue">${svgEscape(finalizedAt)}</text>
-  <rect x="54" y="${tableY}" width="852" height="42" class="head"/>
-  <text x="142" y="${tableY + 27}" class="headText" text-anchor="middle">HOYO</text>
-  <text x="424" y="${tableY + 27}" class="headText" text-anchor="middle">TIGERS</text>
-  <text x="704" y="${tableY + 27}" class="headText" text-anchor="middle">FIRMAS</text>
-  ${tableRows}
+  ${scoreGrid}
   <rect x="54" y="${signatureY}" width="400" height="118" rx="14" class="card"/>
   <text x="254" y="${signatureY + 28}" text-anchor="middle" class="sigTitle">FIRMA TIGERS</text>
   ${finalization.signatures?.tigers ? `<image href="${svgEscape(finalization.signatures.tigers)}" x="78" y="${signatureY + 38}" width="352" height="64" preserveAspectRatio="xMidYMid meet"/>` : ''}
