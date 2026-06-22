@@ -299,6 +299,14 @@ function holesForMatch(match) {
   return match?.type === 'Individual' ? INDIVIDUAL_HOLES : HOLES;
 }
 
+function pointsForMatch(match) {
+  return match?.type === 'Individual' ? 2 : 1;
+}
+
+function totalDisputedPoints() {
+  return state.matches.reduce((total, match) => total + pointsForMatch(match), 0);
+}
+
 function emptyMatchValues(holes = HOLES) {
   return { tigers: Array(holes).fill(''), firmas: Array(holes).fill('') };
 }
@@ -461,8 +469,9 @@ function calculateMatch(matchId) {
   const hasStarted = played > 0;
   const tigersStatus = difference === 0 ? 'AS' : `${Math.abs(difference)}${difference > 0 ? 'Up' : 'Dw'}`;
   const firmasStatus = difference === 0 ? 'AS' : `${Math.abs(difference)}${difference < 0 ? 'Up' : 'Dw'}`;
-  const tigersPoints = !hasStarted ? 0 : difference > 0 ? 1 : difference === 0 ? 0.5 : 0;
-  const firmasPoints = !hasStarted ? 0 : difference < 0 ? 1 : difference === 0 ? 0.5 : 0;
+  const pointValue = pointsForMatch(match);
+  const tigersPoints = !hasStarted ? 0 : difference > 0 ? pointValue : difference === 0 ? pointValue / 2 : 0;
+  const firmasPoints = !hasStarted ? 0 : difference < 0 ? pointValue : difference === 0 ? pointValue / 2 : 0;
 
   return { difference, played, hasStarted, closed, tigersStatus, firmasStatus, tigersPoints, firmasPoints };
 }
@@ -666,7 +675,7 @@ function renderScoreboard() {
   document.getElementById('scoreFirmas').textContent = formatNumber(totals.firmas);
   const inPlay = Math.max(0, totals.started - totals.finalized);
   document.getElementById('matchProgressLabel').textContent = `Partidos en el campo ${inPlay} / Finalizados ${totals.finalized}`;
-  document.getElementById('startedMatches').textContent = `(puntos en disputa ${state.matches.length})`;
+  document.getElementById('startedMatches').textContent = `(puntos en disputa ${totalDisputedPoints()})`;
 
   const summary = document.getElementById('summaryByType');
   summary.innerHTML = Object.entries(totals.byType).map(([type, item]) => `

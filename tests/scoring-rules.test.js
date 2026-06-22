@@ -64,7 +64,11 @@ function winnerValues(holes, winner) {
   return { tigers, firmas };
 }
 
-function assertStartedMatchesAreWorthOnePoint(scoring) {
+function expectedPointsForMatch(match) {
+  return match.type === 'Individual' ? 2 : 1;
+}
+
+function assertStartedMatchesUseConfiguredPointValue(scoring) {
   const totals = scoring.calculateTotals();
 
   for (const match of scoring.state.matches) {
@@ -72,14 +76,14 @@ function assertStartedMatchesAreWorthOnePoint(scoring) {
     if (!calc.hasStarted) continue;
     assert.strictEqual(
       calc.tigersPoints + calc.firmasPoints,
-      1,
-      `${match.id} debe repartir exactamente 1 punto cuando ya comenzo`
+      expectedPointsForMatch(match),
+      `${match.id} debe repartir exactamente ${expectedPointsForMatch(match)} punto(s) cuando ya comenzo`
     );
   }
 
   assert.strictEqual(totals.byType.Scramble.tigers + totals.byType.Scramble.firmas, 14);
   assert.strictEqual(totals.byType['Golpe a Golpe'].tigers + totals.byType['Golpe a Golpe'].firmas, 14);
-  assert.strictEqual(totals.byType.Individual.tigers + totals.byType.Individual.firmas, 28);
+  assert.strictEqual(totals.byType.Individual.tigers + totals.byType.Individual.firmas, 56);
 }
 
 const tournamentData = loadTournamentData();
@@ -329,6 +333,20 @@ for (let id = 1; id <= 28; id += 1) {
 {
   const scoring = loadScoring(tournamentData);
   scoring.ensureStateShape();
+  scoring.state.values['individual-01'] = startedTieValues(18);
+  const tiedIndividual = scoring.calculateMatch('individual-01');
+  assert.strictEqual(tiedIndividual.tigersPoints, 1);
+  assert.strictEqual(tiedIndividual.firmasPoints, 1);
+
+  scoring.state.values['individual-02'] = winnerValues(18, 'tigers');
+  const wonIndividual = scoring.calculateMatch('individual-02');
+  assert.strictEqual(wonIndividual.tigersPoints, 2);
+  assert.strictEqual(wonIndividual.firmasPoints, 0);
+}
+
+{
+  const scoring = loadScoring(tournamentData);
+  scoring.ensureStateShape();
 
   assert.strictEqual(scoring.pairIsLocked(1), false);
   assert.strictEqual(scoring.pairIsLocked(2), false);
@@ -355,7 +373,7 @@ for (let id = 1; id <= 28; id += 1) {
   }
 
   assert.strictEqual(scoring.calculateTotals().started, 56);
-  assertStartedMatchesAreWorthOnePoint(scoring);
+  assertStartedMatchesUseConfiguredPointValue(scoring);
 }
 
 {
@@ -369,7 +387,7 @@ for (let id = 1; id <= 28; id += 1) {
   }
 
   assert.strictEqual(scoring.calculateTotals().started, 56);
-  assertStartedMatchesAreWorthOnePoint(scoring);
+  assertStartedMatchesUseConfiguredPointValue(scoring);
 }
 
 console.log('OK scoring rules');
