@@ -626,6 +626,7 @@ function filteredMatches(view) {
   const teamSearch = view === 'resultados' ? state.resultsTeamSearch : state.cardsTeamSearch;
   const statusFilter = view === 'resultados' ? state.resultsStatusFilter : state.cardsStatusFilter;
   const matches = state.matches.filter(match =>
+    (view !== 'tarjetas' || matchHasValidRoster(match)) &&
     (typeFilter === 'Todas' || match.type === typeFilter) &&
     matchHasPlayer(match, teamSearch) &&
     matchHasStatus(match, statusFilter)

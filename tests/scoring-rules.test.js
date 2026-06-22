@@ -175,6 +175,13 @@ for (let id = 1; id <= 28; id += 1) {
 {
   const scoring = loadScoring(tournamentData);
   scoring.ensureStateShape();
+  scoring.state.players.push(
+    { id: 2, team: 'Tigers', name: 'Tigers Dos', username: 't2', password: '1', isAdmin: false },
+    { id: 3, team: 'Firmas', name: 'Firma Uno', username: 'f1', password: '1', isAdmin: false },
+    { id: 4, team: 'Firmas', name: 'Firma Dos', username: 'f2', password: '1', isAdmin: false }
+  );
+  scoring.state.pairs[0].tigers = 'Ocampo & Tigers Dos';
+  scoring.state.pairs[0].firmas = 'Firma Uno & Firma Dos';
   scoring.state.values['scramble-01'] = {
     tigers: ['4', '', '', '', '', '', '', '', ''],
     firmas: ['5', '', '', '', '', '', '', '', '']
@@ -193,7 +200,7 @@ for (let id = 1; id <= 28; id += 1) {
 
   scoring.state.cardsStatusFilter = 'Sin iniciar';
   assert.strictEqual(scoring.filteredMatches('tarjetas').some(match => match.id === 'scramble-01'), false);
-  assert.strictEqual(scoring.filteredMatches('tarjetas').some(match => match.id === 'individual-01'), true);
+  assert.strictEqual(scoring.filteredMatches('tarjetas').some(match => match.id === 'individual-01'), false);
 
   scoring.state.cardsStatusFilter = 'En el campo';
   assert.deepStrictEqual(scoring.filteredMatches('tarjetas').map(match => match.id), ['scramble-01']);
@@ -307,6 +314,7 @@ for (let id = 1; id <= 28; id += 1) {
   scoring.state.pairs[0].tigers = '';
   scoring.state.pairs[0].firmas = '';
   assert.strictEqual(scoring.canEditMatch(scoring.state.matches.find(match => match.id === 'scramble-01')), false);
+  assert.strictEqual(scoring.filteredMatches('tarjetas').some(match => match.id === 'scramble-01'), false);
 
   scoring.state.currentUser = 'jero';
   assert.strictEqual(scoring.canAccessTab('resultados'), true);
