@@ -304,6 +304,9 @@ for (let id = 1; id <= 28; id += 1) {
   assert.strictEqual(scoring.canAccessTab('resultados-tv'), true);
   assert.strictEqual(scoring.canAccessTab('tarjetas'), true);
   assert.strictEqual(scoring.canAccessTab('equipos'), true);
+  scoring.state.pairs[0].tigers = '';
+  scoring.state.pairs[0].firmas = '';
+  assert.strictEqual(scoring.canEditMatch(scoring.state.matches.find(match => match.id === 'scramble-01')), false);
 
   scoring.state.currentUser = 'jero';
   assert.strictEqual(scoring.canAccessTab('resultados'), true);

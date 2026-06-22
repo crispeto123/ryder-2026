@@ -96,13 +96,18 @@ function cardsEditingBlockedForUser() {
   return isLoggedIn() && !isAdminUser() && !cardsEditingEnabled();
 }
 
-function canEditMatch(match) {
-  if (isAdminUser()) return true;
+function matchHasValidRoster(match) {
   if (!match) return false;
   const participant = participantForMatch(match);
   const roster = match.type === 'Individual' ? 'individuals' : 'pairs';
-  if (!validateRosterSelection(roster, participant.id, 'tigers', participant.tigers)) return false;
-  if (!validateRosterSelection(roster, participant.id, 'firmas', participant.firmas)) return false;
+  return validateRosterSelection(roster, participant.id, 'tigers', participant.tigers)
+    && validateRosterSelection(roster, participant.id, 'firmas', participant.firmas);
+}
+
+function canEditMatch(match) {
+  if (!match) return false;
+  if (!matchHasValidRoster(match)) return false;
+  if (isAdminUser()) return true;
   const userName = normalizeSearch(currentUserName());
   if (!userName) return false;
   return [teamName(match, 'tigers'), teamName(match, 'firmas')].some(name =>

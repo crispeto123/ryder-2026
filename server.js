@@ -260,6 +260,13 @@ function playerIdsForSelection(playersByNameAndTeam, team, value, expected) {
   return names.map(name => playersByNameAndTeam.get(`${team}:${normalizeName(name)}`)?.id || null);
 }
 
+function rosterSideIsValid(playersByNameAndTeam, team, value, expected) {
+  const names = splitSelection(value);
+  if (names.length !== expected) return false;
+  if (new Set(names.map(normalizeName)).size !== names.length) return false;
+  return names.every(name => playersByNameAndTeam.has(`${team}:${normalizeName(name)}`));
+}
+
 function composePlayerMaps(players) {
   const byId = new Map();
   const byNameAndTeam = new Map();
@@ -667,7 +674,9 @@ function setHoleValue(message) {
   const matchId = message.matchId;
   const team = message.team;
   const hole = Number(message.hole);
+  const match = tournamentMatches().find(item => item.id === matchId);
   if (!matchId || !['tigers', 'firmas'].includes(team) || !Number.isInteger(hole) || hole < 0) return false;
+  if (!match || !matchHasValidRoster(match)) return false;
   if (!cardsEditingEnabledFor(messageUsername(message))) return false;
   if (isFinalizedRecord(appState().finalizations?.[matchId])) return false;
 
@@ -694,6 +703,14 @@ function matchRoster(match, values = appState()) {
     return (values.individuals || []).find(item => Number(item.id) === Number(match.individualId)) || empty;
   }
   return (values.pairs || []).find(item => Number(item.id) === Number(match.pairId)) || empty;
+}
+
+function matchHasValidRoster(match, values = appState()) {
+  const roster = matchRoster(match, values);
+  const expected = match?.type === 'Individual' ? 1 : 2;
+  const { byNameAndTeam } = composePlayerMaps(loadPlayersFromDb());
+  return rosterSideIsValid(byNameAndTeam, 'Tigers', roster.tigers, expected)
+    && rosterSideIsValid(byNameAndTeam, 'Firmas', roster.firmas, expected);
 }
 
 function matchUserCanDownload(match, username) {
@@ -1512,7 +1529,14 @@ function handleMessage(socket, raw) {
 
   if (message.type === 'set-hole') {
     const change = setHoleValue(message);
-    if (!change) return;
+    if (!change) {
+      send(socket, {
+        type: 'sync-warning',
+        message: 'No se puede registrar una tarjeta sin jugadores configurados.',
+        values: sharedState.values
+      });
+      return;
+    }
     saveSharedState();
     if (String(change.previousValue ?? '') !== String(change.nextValue ?? '')) {
       audit('set-hole', {
@@ -1528,6 +1552,7 @@ function handleMessage(socket, raw) {
 
   if (message.type === 'finalize-match') {
     const matchId = message.matchId;
+    const match = tournamentMatches().find(item => item.id === matchId);
     const finalization = message.finalization || message.values?.finalizations?.[matchId];
     const existing = appState().finalizations?.[matchId];
 
@@ -1536,6 +1561,15 @@ function handleMessage(socket, raw) {
         type: 'finalize-rejected',
         matchId,
         message: 'No se recibio una finalizacion valida. Refresca la pagina e intenta de nuevo.',
+        values: sharedState.values
+      });
+      return;
+    }
+    if (!match || !matchHasValidRoster(match)) {
+      send(socket, {
+        type: 'finalize-rejected',
+        matchId,
+        message: 'No se puede finalizar una tarjeta sin jugadores configurados.',
         values: sharedState.values
       });
       return;
