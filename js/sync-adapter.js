@@ -2,9 +2,12 @@
   const listeners = new Set();
   let socket = null;
   let connected = false;
+  let heartbeatTimer = null;
+  let lastPongAt = 0;
 
   function notifyStatus(status) {
     document.documentElement.dataset.sync = status;
+    window.dispatchEvent(new CustomEvent('ryder-sync-status', { detail: { status } }));
   }
 
   function wsUrl() {
@@ -37,6 +40,24 @@
     send({ type: 'hello', values: {} });
   }
 
+  function stopHeartbeat() {
+    if (heartbeatTimer) window.clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  }
+
+  function startHeartbeat() {
+    stopHeartbeat();
+    lastPongAt = Date.now();
+    heartbeatTimer = window.setInterval(() => {
+      if (!send({ type: 'ping', at: Date.now() })) return;
+      if (Date.now() - lastPongAt > 45000) {
+        connected = false;
+        notifyStatus('local');
+        try { socket?.close(); } catch {}
+      }
+    }, 15000);
+  }
+
   function connect(initialValues) {
     if (!('WebSocket' in window)) {
       notifyStatus('local');
@@ -49,6 +70,7 @@
     socket.addEventListener('open', () => {
       connected = true;
       notifyStatus('online');
+      startHeartbeat();
       send({ type: 'hello', values: initialValues || {} });
     });
 
@@ -57,6 +79,12 @@
         const message = JSON.parse(event.data);
         if (message.type === 'state') {
           listeners.forEach(listener => listener(message.values || {}));
+        }
+        if (message.type === 'pong') {
+          lastPongAt = Date.now();
+        }
+        if (message.type === 'hole-saved') {
+          window.dispatchEvent(new CustomEvent('ryder-hole-saved', { detail: message }));
         }
         if (message.type === 'finalize-rejected' || message.type === 'sync-warning') {
           window.dispatchEvent(new CustomEvent('ryder-sync-warning', {
@@ -75,12 +103,14 @@
 
     socket.addEventListener('close', () => {
       connected = false;
+      stopHeartbeat();
       notifyStatus('local');
       window.setTimeout(() => connect(initialValues), 1500);
     });
 
     socket.addEventListener('error', () => {
       connected = false;
+      stopHeartbeat();
       notifyStatus('local');
     });
   }

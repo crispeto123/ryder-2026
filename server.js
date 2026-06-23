@@ -693,7 +693,7 @@ function setHoleValue(message) {
   const nextValue = message.value ?? '';
   current.values[matchId][team][hole] = nextValue;
   sharedState = { values: current };
-  return { matchId, team, hole, previousValue, nextValue };
+  return { matchId, team, hole, previousValue, nextValue, version: new Date().toISOString() };
 }
 
 function matchRoster(match, values = appState()) {
@@ -1510,6 +1510,11 @@ function handleMessage(socket, raw) {
     return;
   }
 
+  if (message.type === 'ping') {
+    send(socket, { type: 'pong', at: message.at || Date.now() });
+    return;
+  }
+
   if (message.type === 'set-state') {
     const incomingValues = { ...(message.values || {}) };
     if (incomingValues.settings && !userIsAdmin(messageUsername(message))) {
@@ -1546,6 +1551,14 @@ function handleMessage(socket, raw) {
         nextValue: change.nextValue
       }, change.matchId, messageUsername(message));
     }
+    send(socket, {
+      type: 'hole-saved',
+      matchId: change.matchId,
+      team: change.team,
+      hole: change.hole,
+      value: change.nextValue,
+      version: change.version
+    });
     broadcast({ type: 'state', values: sharedState.values });
     return;
   }

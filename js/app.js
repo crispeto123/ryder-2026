@@ -1,5 +1,6 @@
 const STORAGE_KEY = 'ryder-2026-matchplay-state-v1';
 const SESSION_KEY = 'ryder-2026-session-user';
+const PENDING_MUTATIONS_KEY = 'ryder-2026-pending-mutations-v1';
 const HOLES = 9;
 const INDIVIDUAL_HOLES = 18;
 
@@ -30,6 +31,7 @@ let downloadMatchId = '';
 const pendingFinalizations = new Set();
 const pendingFinalizationTimers = new Map();
 const pendingHoleSaves = new Map();
+const savedHoleTimers = new Map();
 const signatureInk = { tigers: false, firmas: false };
 
 function toBoolean(value) {
@@ -161,6 +163,25 @@ function clearPendingHoleSave(key) {
   pendingHoleSaves.delete(key);
 }
 
+function markHoleSaved(matchId, team, hole, value) {
+  const key = holeSaveKey(matchId, team, hole);
+  clearPendingHoleSave(key);
+  const existing = savedHoleTimers.get(key);
+  if (existing) window.clearTimeout(existing);
+  pendingHoleSaves.set(key, {
+    matchId,
+    team,
+    hole: Number(hole),
+    value: String(value ?? remoteHoleValue(matchId, team, hole)),
+    status: 'saved'
+  });
+  savedHoleTimers.set(key, window.setTimeout(() => {
+    pendingHoleSaves.delete(key);
+    savedHoleTimers.delete(key);
+    renderCards();
+  }, 2500));
+}
+
 function markHoleSavePending(matchId, team, hole, value) {
   const key = holeSaveKey(matchId, team, hole);
   clearPendingHoleSave(key);
@@ -173,7 +194,8 @@ function markHoleSavePending(matchId, team, hole, value) {
     timer: window.setTimeout(() => {
       const pending = pendingHoleSaves.get(key);
       if (!pending || pending.status !== 'saving') return;
-      pending.status = 'failed';
+      pending.status = 'queued';
+      enqueueHoleMutation(pending.matchId, pending.team, pending.hole, pending.value);
       renderCards();
       window.RyderSync?.refresh?.();
     }, 8000)
@@ -182,6 +204,7 @@ function markHoleSavePending(matchId, team, hole, value) {
 
 function reconcilePendingHoleSaves() {
   [...pendingHoleSaves.entries()].forEach(([key, pending]) => {
+    if (pending.status === 'saved') return;
     if (remoteHoleValue(pending.matchId, pending.team, pending.hole) === pending.value) {
       clearPendingHoleSave(key);
     }
@@ -191,8 +214,69 @@ function reconcilePendingHoleSaves() {
 function matchSaveStatus(matchId) {
   const entries = [...pendingHoleSaves.values()].filter(item => item.matchId === matchId);
   if (!entries.length) return null;
-  if (entries.some(item => item.status === 'failed')) return 'Sin confirmar';
+  if (entries.some(item => item.status === 'saved')) return '✓ Guardado';
+  if (entries.some(item => item.status === 'queued')) return 'Pendiente';
   return 'Guardando...';
+}
+
+function readPendingMutations() {
+  try {
+    return JSON.parse(localStorage.getItem(PENDING_MUTATIONS_KEY) || '[]');
+  } catch {
+    return [];
+  }
+}
+
+function writePendingMutations(items) {
+  localStorage.setItem(PENDING_MUTATIONS_KEY, JSON.stringify(items));
+}
+
+function enqueueHoleMutation(matchId, team, hole, value) {
+  const key = holeSaveKey(matchId, team, hole);
+  const next = readPendingMutations().filter(item => item.key !== key);
+  next.push({
+    key,
+    type: 'set-hole',
+    matchId,
+    team,
+    hole: Number(hole),
+    value: String(value ?? ''),
+    username: currentUsername(),
+    createdAt: new Date().toISOString()
+  });
+  writePendingMutations(next);
+}
+
+function removeQueuedHoleMutation(matchId, team, hole, value) {
+  const key = holeSaveKey(matchId, team, hole);
+  writePendingMutations(readPendingMutations().filter(item =>
+    !(item.key === key && String(item.value ?? '') === String(value ?? ''))
+  ));
+}
+
+function restoreQueuedHoleSaves() {
+  readPendingMutations().forEach(item => {
+    if (item.type !== 'set-hole') return;
+    const key = holeSaveKey(item.matchId, item.team, item.hole);
+    if (pendingHoleSaves.has(key)) return;
+    pendingHoleSaves.set(key, {
+      matchId: item.matchId,
+      team: item.team,
+      hole: Number(item.hole),
+      value: String(item.value ?? ''),
+      status: 'queued'
+    });
+  });
+}
+
+function flushPendingMutations() {
+  if (!canWriteOnline()) return;
+  restoreQueuedHoleSaves();
+  readPendingMutations().forEach(item => {
+    if (item.type !== 'set-hole') return;
+    const sent = window.RyderSync?.setHole?.(item.matchId, item.team, Number(item.hole), item.value, item.username || currentUsername());
+    if (sent) markHoleSavePending(item.matchId, item.team, Number(item.hole), item.value);
+  });
 }
 
 function matchResultLabel(match, calc = calculateMatch(match.id)) {
@@ -427,6 +511,28 @@ function handleSyncWarning(event) {
   }
   if (event.detail?.values) applyRemoteState(event.detail.values);
   alert(event.detail?.message || 'La tarjeta ya fue finalizada por otro usuario.');
+}
+
+function handleHoleSaved(event) {
+  const { matchId, team, hole, value } = event.detail || {};
+  if (!matchId || !team || !Number.isInteger(Number(hole))) return;
+  removeQueuedHoleMutation(matchId, team, Number(hole), value);
+  markHoleSaved(matchId, team, Number(hole), value);
+  renderCards();
+}
+
+function handleSyncStatus(event) {
+  if (event.detail?.status === 'online') {
+    flushPendingMutations();
+    window.RyderSync?.refresh?.();
+  }
+}
+
+function handleAppResume() {
+  restoreQueuedHoleSaves();
+  flushPendingMutations();
+  window.RyderSync?.refresh?.();
+  renderCards();
 }
 
 function formatNumber(value) {
@@ -727,7 +833,7 @@ function holeInput(match, team, index) {
   const value = state.values[match.id][team][index] ?? '';
   const calc = calculateMatch(match.id);
   const closedRemaining = calc.closed && value === '';
-  const disabled = canWriteOnline() && canWriteMatch(match) && !isFinalized(match.id) && !isFinalizationPending(match.id) && !closedRemaining ? '' : 'disabled';
+  const disabled = canWriteMatch(match) && !isFinalized(match.id) && !isFinalizationPending(match.id) && !closedRemaining ? '' : 'disabled';
   const pending = pendingHoleSaves.get(holeSaveKey(match.id, team, index));
   const saveClass = pending ? ` save-${pending.status}` : '';
   const saveTitle = pending?.status === 'failed'
@@ -808,7 +914,7 @@ function renderCards() {
           <span class="summary-separator">/</span>
           <span class="summary-team summary-firmas">Firmas <strong class="${statusClass(calc.firmasStatus)}">${calc.firmasStatus}</strong> <em>${formatNumber(calc.firmasPoints)} pts</em></span>
         </span>
-        ${saveStatus ? `<span class="save-status ${saveStatus === 'Sin confirmar' ? 'failed' : ''}">${saveStatus}</span>` : ''}
+        ${saveStatus ? `<span class="save-status ${saveStatus.includes('Guardado') ? 'saved' : saveStatus === 'Pendiente' ? 'queued' : ''}">${saveStatus}</span>` : ''}
         ${actions}
       `;
 
@@ -926,19 +1032,27 @@ function onInput(event) {
   if (!input) return;
   const { match, team, hole } = input.dataset;
   const matchItem = state.matches.find(item => item.id === match);
-  if (!canWriteOnline()) {
-    warnOfflineWrite();
-    renderCards();
-    return;
-  }
   if (!canWriteMatch(matchItem) || isFinalized(match)) return;
   state.values[match][team][Number(hole)] = input.value;
   saveState({ sync: false });
+  if (!canWriteOnline()) {
+    enqueueHoleMutation(match, team, Number(hole), input.value);
+    const key = holeSaveKey(match, team, Number(hole));
+    pendingHoleSaves.set(key, {
+      matchId: match,
+      team,
+      hole: Number(hole),
+      value: String(input.value ?? ''),
+      status: 'queued'
+    });
+    renderAll();
+    return;
+  }
   const sent = window.RyderSync?.setHole?.(match, team, Number(hole), input.value, currentUsername());
   if (sent) {
     markHoleSavePending(match, team, Number(hole), input.value);
   } else {
-    warnOfflineWrite();
+    enqueueHoleMutation(match, team, Number(hole), input.value);
   }
   renderAll();
   const restored = document.querySelector(`[data-match="${match}"][data-team="${team}"][data-hole="${hole}"]`);
@@ -1650,11 +1764,18 @@ function bindEvents() {
     if (event.key === 'Escape') closeResetModal();
   });
   window.addEventListener('ryder-sync-warning', handleSyncWarning);
+  window.addEventListener('ryder-hole-saved', handleHoleSaved);
+  window.addEventListener('ryder-sync-status', handleSyncStatus);
+  window.addEventListener('focus', handleAppResume);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') handleAppResume();
+  });
 }
 
 loadState();
 loadSession();
 ensureStateShape();
+restoreQueuedHoleSaves();
 bindEvents();
 bindSignaturePad();
 setActiveTab(defaultTab());
