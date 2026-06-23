@@ -1047,10 +1047,13 @@ function renderCards() {
       `;
 
       const grid = node.querySelector('.match-grid');
-      if (calc.closed && !isFinalized(match.id)) {
+      if (canFinalizeMatch(match, calc) && !isFinalized(match.id)) {
         const notice = document.createElement('div');
         notice.className = 'match-defined-notice';
-        notice.innerHTML = `<strong>${escapeHtml(winnerLabel(match, calc))}</strong><span>No es necesario jugar los hoyos restantes. Finaliza la tarjeta para bloquear el resultado.</span>`;
+        const noticeText = calc.closed
+          ? 'No es necesario jugar los hoyos restantes. Finaliza la tarjeta para bloquear el resultado.'
+          : 'Partido completado. Finaliza la tarjeta para bloquear el resultado.';
+        notice.innerHTML = `<strong>${escapeHtml(winnerLabel(match, calc))}</strong><span>${noticeText}</span>`;
         card.insertBefore(notice, grid);
       }
       grid.innerHTML = scorecardGrid(match, calc);
