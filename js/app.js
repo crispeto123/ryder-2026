@@ -1,6 +1,8 @@
 const STORAGE_KEY = 'ryder-2026-matchplay-state-v1';
 const SESSION_KEY = 'ryder-2026-session-user';
 const PENDING_MUTATIONS_KEY = 'ryder-2026-pending-mutations-v1';
+const CLIENT_ID_KEY = 'ryder-2026-client-id';
+const CLIENT_SEQ_KEY = 'ryder-2026-client-seq';
 const HOLES = 9;
 const INDIVIDUAL_HOLES = 18;
 
@@ -21,6 +23,7 @@ const state = {
   cardsStatusFilter: 'Todos',
   resultsTeamSearch: '',
   cardsTeamSearch: '',
+  auditLog: [],
   currentUser: null
 };
 
@@ -153,6 +156,38 @@ function holeSaveKey(matchId, team, hole) {
   return `${matchId}|${team}|${hole}`;
 }
 
+function clientId() {
+  let id = localStorage.getItem(CLIENT_ID_KEY);
+  if (!id) {
+    id = `client-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    localStorage.setItem(CLIENT_ID_KEY, id);
+  }
+  return id;
+}
+
+function nextClientSeq() {
+  const next = Number(localStorage.getItem(CLIENT_SEQ_KEY) || 0) + 1;
+  localStorage.setItem(CLIENT_SEQ_KEY, String(next));
+  return next;
+}
+
+function createHoleMutation(matchId, team, hole, value) {
+  const seq = nextClientSeq();
+  return {
+    key: holeSaveKey(matchId, team, hole),
+    type: 'set-hole',
+    mutationId: `${clientId()}-${seq}`,
+    clientId: clientId(),
+    clientSeq: seq,
+    matchId,
+    team,
+    hole: Number(hole),
+    value: String(value ?? ''),
+    username: currentUsername(),
+    createdAt: new Date().toISOString()
+  };
+}
+
 function remoteHoleValue(matchId, team, hole) {
   return String(state.values?.[matchId]?.[team]?.[Number(hole)] ?? '');
 }
@@ -182,7 +217,8 @@ function markHoleSaved(matchId, team, hole, value) {
   }, 2500));
 }
 
-function markHoleSavePending(matchId, team, hole, value) {
+function markHoleSavePending(mutation) {
+  const { matchId, team, hole, value } = mutation;
   const key = holeSaveKey(matchId, team, hole);
   clearPendingHoleSave(key);
   pendingHoleSaves.set(key, {
@@ -190,12 +226,14 @@ function markHoleSavePending(matchId, team, hole, value) {
     team,
     hole: Number(hole),
     value: String(value ?? ''),
+    mutationId: mutation.mutationId,
+    clientSeq: mutation.clientSeq,
     status: 'saving',
     timer: window.setTimeout(() => {
       const pending = pendingHoleSaves.get(key);
       if (!pending || pending.status !== 'saving') return;
       pending.status = 'queued';
-      enqueueHoleMutation(pending.matchId, pending.team, pending.hole, pending.value);
+      enqueueHoleMutation(mutation);
       renderCards();
       window.RyderSync?.refresh?.();
     }, 8000)
@@ -214,7 +252,8 @@ function reconcilePendingHoleSaves() {
 function matchSaveStatus(matchId) {
   const entries = [...pendingHoleSaves.values()].filter(item => item.matchId === matchId);
   if (!entries.length) return null;
-  if (entries.some(item => item.status === 'saved')) return '✓ Guardado';
+  if (entries.some(item => item.status === 'saved')) return 'Guardado';
+  if (entries.some(item => item.status === 'ignored')) return 'Ignorado: dato nuevo';
   if (entries.some(item => item.status === 'queued')) return 'Pendiente';
   return 'Guardando...';
 }
@@ -231,26 +270,16 @@ function writePendingMutations(items) {
   localStorage.setItem(PENDING_MUTATIONS_KEY, JSON.stringify(items));
 }
 
-function enqueueHoleMutation(matchId, team, hole, value) {
-  const key = holeSaveKey(matchId, team, hole);
-  const next = readPendingMutations().filter(item => item.key !== key);
-  next.push({
-    key,
-    type: 'set-hole',
-    matchId,
-    team,
-    hole: Number(hole),
-    value: String(value ?? ''),
-    username: currentUsername(),
-    createdAt: new Date().toISOString()
-  });
+function enqueueHoleMutation(mutation) {
+  const next = readPendingMutations().filter(item => item.key !== mutation.key);
+  next.push(mutation);
   writePendingMutations(next);
 }
 
-function removeQueuedHoleMutation(matchId, team, hole, value) {
+function removeQueuedHoleMutation(matchId, team, hole, value, mutationId = '') {
   const key = holeSaveKey(matchId, team, hole);
   writePendingMutations(readPendingMutations().filter(item =>
-    !(item.key === key && String(item.value ?? '') === String(value ?? ''))
+    !(item.key === key && (mutationId ? item.mutationId === mutationId : String(item.value ?? '') === String(value ?? '')))
   ));
 }
 
@@ -264,6 +293,8 @@ function restoreQueuedHoleSaves() {
       team: item.team,
       hole: Number(item.hole),
       value: String(item.value ?? ''),
+      mutationId: item.mutationId,
+      clientSeq: item.clientSeq,
       status: 'queued'
     });
   });
@@ -274,8 +305,8 @@ function flushPendingMutations() {
   restoreQueuedHoleSaves();
   readPendingMutations().forEach(item => {
     if (item.type !== 'set-hole') return;
-    const sent = window.RyderSync?.setHole?.(item.matchId, item.team, Number(item.hole), item.value, item.username || currentUsername());
-    if (sent) markHoleSavePending(item.matchId, item.team, Number(item.hole), item.value);
+    const sent = window.RyderSync?.setHole?.(item.matchId, item.team, Number(item.hole), item.value, item.username || currentUsername(), item);
+    if (sent) markHoleSavePending(item);
   });
 }
 
@@ -514,11 +545,34 @@ function handleSyncWarning(event) {
 }
 
 function handleHoleSaved(event) {
-  const { matchId, team, hole, value } = event.detail || {};
+  const { matchId, team, hole, value, mutationId } = event.detail || {};
   if (!matchId || !team || !Number.isInteger(Number(hole))) return;
-  removeQueuedHoleMutation(matchId, team, Number(hole), value);
+  removeQueuedHoleMutation(matchId, team, Number(hole), value, mutationId);
   markHoleSaved(matchId, team, Number(hole), value);
   renderCards();
+}
+
+function handleHoleIgnored(event) {
+  const { matchId, team, hole, value, mutationId, message } = event.detail || {};
+  if (!matchId || !team || !Number.isInteger(Number(hole))) return;
+  removeQueuedHoleMutation(matchId, team, Number(hole), value, mutationId);
+  const key = holeSaveKey(matchId, team, Number(hole));
+  clearPendingHoleSave(key);
+  pendingHoleSaves.set(key, {
+    matchId,
+    team,
+    hole: Number(hole),
+    value: String(value ?? ''),
+    mutationId,
+    status: 'ignored'
+  });
+  window.setTimeout(() => {
+    pendingHoleSaves.delete(key);
+    renderCards();
+  }, 5000);
+  alert(message || 'Un cambio viejo fue ignorado porque ya existe un dato mas nuevo.');
+  renderCards();
+  window.RyderSync?.refresh?.();
 }
 
 function handleSyncStatus(event) {
@@ -546,6 +600,80 @@ function escapeHtml(value) {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#039;');
+}
+
+function formatAuditDate(value) {
+  if (!value) return '';
+  return new Date(value).toLocaleString('es-CO', {
+    timeZone: 'America/Bogota',
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+}
+
+function auditActionLabel(action) {
+  const labels = {
+    'set-hole': 'Score',
+    'set-state': 'Configuracion',
+    'finalize-match': 'Finalizacion',
+    'unlock-match': 'Abrir tarjeta',
+    'reset-cards': 'Reinicio tarjetas',
+    'reset-rejected': 'Reinicio rechazado',
+    'finalize-rejected': 'Finalizacion rechazada'
+  };
+  return labels[action] || action || '';
+}
+
+function auditDetail(payload = {}) {
+  if (Object.hasOwn(payload, 'hole')) {
+    const hole = Number(payload.hole) + 1;
+    return `${payload.team || ''} H${hole}: ${payload.previousValue ?? ''} -> ${payload.nextValue ?? ''}`;
+  }
+  if (payload.reason) return `Motivo: ${payload.reason}`;
+  if (Object.hasOwn(payload, 'cardsEditingEnabled')) {
+    return `Tarjetas: ${payload.cardsEditingEnabled ? 'EN TORNEO' : 'SIN EMPEZAR'}`;
+  }
+  if (payload.result) return payload.result;
+  return Object.keys(payload).length ? JSON.stringify(payload) : '';
+}
+
+function renderAuditLog(items = state.auditLog) {
+  const body = document.getElementById('auditBody');
+  if (!body) return;
+  if (!isAdminUser()) {
+    body.innerHTML = '<tr><td colspan="5">Solo administradores.</td></tr>';
+    return;
+  }
+  if (!items.length) {
+    body.innerHTML = '<tr><td colspan="5">Sin datos.</td></tr>';
+    return;
+  }
+  body.innerHTML = items.map(item => `
+    <tr>
+      <td>${escapeHtml(formatAuditDate(item.createdAt))}</td>
+      <td>${escapeHtml(auditActionLabel(item.action))}</td>
+      <td>${escapeHtml(item.username || '')}</td>
+      <td>${escapeHtml(item.matchId || '')}</td>
+      <td>${escapeHtml(auditDetail(item.payload || {}))}</td>
+    </tr>
+  `).join('');
+}
+
+async function loadAuditLog() {
+  if (!isAdminUser()) return;
+  try {
+    const response = await fetch(`/api/audit?user=${encodeURIComponent(currentUsername())}`, { cache: 'no-store' });
+    const data = await response.json();
+    if (!response.ok || !data.ok) throw new Error(data.error || 'No fue posible cargar auditoria');
+    state.auditLog = Array.isArray(data.items) ? data.items : [];
+    renderAuditLog();
+  } catch (error) {
+    const body = document.getElementById('auditBody');
+    if (body) body.innerHTML = '<tr><td colspan="5">No fue posible cargar auditoria.</td></tr>';
+    console.warn(error);
+  }
 }
 
 function calculateMatch(matchId) {
@@ -914,7 +1042,7 @@ function renderCards() {
           <span class="summary-separator">/</span>
           <span class="summary-team summary-firmas">Firmas <strong class="${statusClass(calc.firmasStatus)}">${calc.firmasStatus}</strong> <em>${formatNumber(calc.firmasPoints)} pts</em></span>
         </span>
-        ${saveStatus ? `<span class="save-status ${saveStatus.includes('Guardado') ? 'saved' : saveStatus === 'Pendiente' ? 'queued' : ''}">${saveStatus}</span>` : ''}
+        ${saveStatus ? `<span class="save-status ${saveStatus.includes('Guardado') ? 'saved' : saveStatus === 'Pendiente' || saveStatus.includes('Ignorado') ? 'queued' : ''}">${saveStatus}</span>` : ''}
         ${actions}
       `;
 
@@ -1025,6 +1153,7 @@ function renderAll() {
   renderResultsTable();
   renderCards();
   if (!editingRoster) renderRoster();
+  renderAuditLog();
 }
 
 function onInput(event) {
@@ -1035,24 +1164,27 @@ function onInput(event) {
   if (!canWriteMatch(matchItem) || isFinalized(match)) return;
   state.values[match][team][Number(hole)] = input.value;
   saveState({ sync: false });
+  const mutation = createHoleMutation(match, team, Number(hole), input.value);
   if (!canWriteOnline()) {
-    enqueueHoleMutation(match, team, Number(hole), input.value);
+    enqueueHoleMutation(mutation);
     const key = holeSaveKey(match, team, Number(hole));
     pendingHoleSaves.set(key, {
       matchId: match,
       team,
       hole: Number(hole),
       value: String(input.value ?? ''),
+      mutationId: mutation.mutationId,
+      clientSeq: mutation.clientSeq,
       status: 'queued'
     });
     renderAll();
     return;
   }
-  const sent = window.RyderSync?.setHole?.(match, team, Number(hole), input.value, currentUsername());
+  const sent = window.RyderSync?.setHole?.(match, team, Number(hole), input.value, currentUsername(), mutation);
   if (sent) {
-    markHoleSavePending(match, team, Number(hole), input.value);
+    markHoleSavePending(mutation);
   } else {
-    enqueueHoleMutation(match, team, Number(hole), input.value);
+    enqueueHoleMutation(mutation);
   }
   renderAll();
   const restored = document.querySelector(`[data-match="${match}"][data-team="${team}"][data-hole="${hole}"]`);
@@ -1573,6 +1705,7 @@ function setActiveTab(tabName) {
   document.querySelectorAll('.tab').forEach(tab => tab.classList.toggle('active', tab.dataset.tab === tabName));
   document.querySelectorAll('.tab-panel').forEach(panel => panel.classList.toggle('active', panel.id === tabName));
   document.body.dataset.activeTab = tabName;
+  if (tabName === 'equipos') loadAuditLog();
 }
 
 function exportJson() {
@@ -1742,6 +1875,7 @@ function bindEvents() {
   document.getElementById('btnAddPlayer').addEventListener('click', addPlayer);
   document.getElementById('btnClearPairs').addEventListener('click', clearPairs);
   document.getElementById('btnClearIndividuals').addEventListener('click', clearIndividuals);
+  document.getElementById('btnRefreshAudit').addEventListener('click', loadAuditLog);
   document.getElementById('btnCancelReset').addEventListener('click', closeResetModal);
   document.getElementById('btnConfirmReset').addEventListener('click', resetAll);
   document.getElementById('btnClearSignature').addEventListener('click', clearAllSignatures);
@@ -1765,6 +1899,7 @@ function bindEvents() {
   });
   window.addEventListener('ryder-sync-warning', handleSyncWarning);
   window.addEventListener('ryder-hole-saved', handleHoleSaved);
+  window.addEventListener('ryder-hole-ignored', handleHoleIgnored);
   window.addEventListener('ryder-sync-status', handleSyncStatus);
   window.addEventListener('focus', handleAppResume);
   document.addEventListener('visibilitychange', () => {

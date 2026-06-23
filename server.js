@@ -179,9 +179,29 @@ function openDatabase() {
       payload TEXT,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS processed_mutations (
+      mutation_id TEXT PRIMARY KEY,
+      match_id TEXT,
+      team TEXT,
+      hole_index INTEGER,
+      client_id TEXT,
+      client_seq INTEGER,
+      value TEXT,
+      status TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
   `);
+  ensureColumn(database, 'hole_scores', 'client_id', 'TEXT');
+  ensureColumn(database, 'hole_scores', 'client_seq', 'INTEGER NOT NULL DEFAULT 0');
+  ensureColumn(database, 'hole_scores', 'mutation_id', 'TEXT');
   seedMatches(database);
   return database;
+}
+
+function ensureColumn(database, table, column, definition) {
+  const columns = database.prepare(`PRAGMA table_info(${table})`).all();
+  if (columns.some(item => item.name === column)) return;
+  database.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
 }
 
 function seedMatches(database = db) {
@@ -437,6 +457,52 @@ function messageUsername(message) {
   return String(message?.username || message?.finalization?.finalizedBy || '').trim();
 }
 
+function mutationMeta(message) {
+  const clientSeq = Number(message.clientSeq || 0);
+  return {
+    mutationId: String(message.mutationId || `server-${crypto.randomUUID()}`),
+    clientId: String(message.clientId || ''),
+    clientSeq: Number.isFinite(clientSeq) ? clientSeq : 0
+  };
+}
+
+function processedMutation(mutationId) {
+  if (!mutationId) return null;
+  return db.prepare('SELECT * FROM processed_mutations WHERE mutation_id = ?').get(mutationId) || null;
+}
+
+function latestAcceptedMutation(meta, matchId, team, hole) {
+  if (!meta.clientId || !meta.clientSeq) return null;
+  return db.prepare(`
+    SELECT * FROM processed_mutations
+    WHERE client_id = ?
+      AND match_id = ?
+      AND team = ?
+      AND hole_index = ?
+      AND status = 'accepted'
+    ORDER BY client_seq DESC, created_at DESC
+    LIMIT 1
+  `).get(meta.clientId, matchId, team, hole) || null;
+}
+
+function recordProcessedMutation(meta, change, status) {
+  db.prepare(`
+    INSERT OR IGNORE INTO processed_mutations
+      (mutation_id, match_id, team, hole_index, client_id, client_seq, value, status, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    meta.mutationId,
+    change.matchId,
+    change.team,
+    change.hole,
+    meta.clientId,
+    meta.clientSeq,
+    String(change.nextValue ?? change.value ?? ''),
+    status,
+    new Date().toISOString()
+  );
+}
+
 function findUserRecord(username) {
   const key = normalizeName(username);
   if (!key) return null;
@@ -674,11 +740,46 @@ function setHoleValue(message) {
   const matchId = message.matchId;
   const team = message.team;
   const hole = Number(message.hole);
+  const meta = mutationMeta(message);
   const match = tournamentMatches().find(item => item.id === matchId);
   if (!matchId || !['tigers', 'firmas'].includes(team) || !Number.isInteger(hole) || hole < 0) return false;
   if (!match || !matchHasValidRoster(match)) return false;
   if (!cardsEditingEnabledFor(messageUsername(message))) return false;
   if (isFinalizedRecord(appState().finalizations?.[matchId])) return false;
+
+  const duplicate = processedMutation(meta.mutationId);
+  if (duplicate) {
+    return {
+      matchId,
+      team,
+      hole,
+      nextValue: duplicate.value,
+      mutationId: meta.mutationId,
+      clientId: meta.clientId,
+      clientSeq: meta.clientSeq,
+      version: duplicate.created_at,
+      duplicate: true,
+      ignored: duplicate.status === 'ignored'
+    };
+  }
+
+  const latest = latestAcceptedMutation(meta, matchId, team, hole);
+  if (latest && Number(latest.client_seq || 0) > meta.clientSeq) {
+    const ignored = {
+      matchId,
+      team,
+      hole,
+      nextValue: message.value ?? '',
+      mutationId: meta.mutationId,
+      clientId: meta.clientId,
+      clientSeq: meta.clientSeq,
+      ignored: true,
+      reason: 'stale-client-seq',
+      version: new Date().toISOString()
+    };
+    recordProcessedMutation(meta, ignored, 'ignored');
+    return ignored;
+  }
 
   const current = appState();
   current.values = current.values || {};
@@ -693,7 +794,19 @@ function setHoleValue(message) {
   const nextValue = message.value ?? '';
   current.values[matchId][team][hole] = nextValue;
   sharedState = { values: current };
-  return { matchId, team, hole, previousValue, nextValue, version: new Date().toISOString() };
+  const change = {
+    matchId,
+    team,
+    hole,
+    previousValue,
+    nextValue,
+    mutationId: meta.mutationId,
+    clientId: meta.clientId,
+    clientSeq: meta.clientSeq,
+    version: new Date().toISOString()
+  };
+  recordProcessedMutation(meta, change, 'accepted');
+  return change;
 }
 
 function matchRoster(match, values = appState()) {
@@ -1359,6 +1472,35 @@ function serveMatchImage(url, res) {
   return true;
 }
 
+function serveAuditLog(url, res) {
+  const username = url.searchParams.get('user') || '';
+  if (!userIsAdmin(username)) {
+    res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ ok: false, error: 'Solo administradores' }));
+    return true;
+  }
+  const rows = db.prepare(`
+    SELECT id, action, match_id AS matchId, username, payload, created_at AS createdAt
+    FROM audit_log
+    ORDER BY id DESC
+    LIMIT 60
+  `).all().map(row => {
+    let payload = {};
+    try {
+      payload = row.payload ? JSON.parse(row.payload) : {};
+    } catch {
+      payload = { raw: row.payload || '' };
+    }
+    return { ...row, payload };
+  });
+  res.writeHead(200, {
+    'Cache-Control': 'no-store',
+    'Content-Type': 'application/json; charset=utf-8'
+  });
+  res.end(JSON.stringify({ ok: true, items: rows }));
+  return true;
+}
+
 function staticFilePath(requestUrl) {
   const url = new URL(requestUrl, `http://${HOST}:${PORT}`);
   const pathname = decodeURIComponent(url.pathname === '/' ? '/index.html' : url.pathname);
@@ -1379,6 +1521,10 @@ function serveStatic(req, res) {
   }
   if (/^\/api\/matches\/[^/]+\/pdf$/.test(url.pathname)) {
     serveMatchPdf(url, res);
+    return;
+  }
+  if (url.pathname === '/api/audit') {
+    serveAuditLog(url, res);
     return;
   }
   if (url.pathname === '/api/health') {
@@ -1542,13 +1688,31 @@ function handleMessage(socket, raw) {
       });
       return;
     }
-    saveSharedState();
-    if (String(change.previousValue ?? '') !== String(change.nextValue ?? '')) {
+    if (change.ignored) {
+      send(socket, {
+        type: 'hole-ignored',
+        matchId: change.matchId,
+        team: change.team,
+        hole: change.hole,
+        value: change.nextValue,
+        mutationId: change.mutationId,
+        clientId: change.clientId,
+        clientSeq: change.clientSeq,
+        version: change.version,
+        message: 'Cambio ignorado: ya existe un dato mas nuevo para ese hoyo.'
+      });
+      return;
+    }
+    if (!change.duplicate) saveSharedState();
+    if (!change.duplicate && String(change.previousValue ?? '') !== String(change.nextValue ?? '')) {
       audit('set-hole', {
         team: change.team,
         hole: change.hole,
         previousValue: change.previousValue,
-        nextValue: change.nextValue
+        nextValue: change.nextValue,
+        mutationId: change.mutationId,
+        clientId: change.clientId,
+        clientSeq: change.clientSeq
       }, change.matchId, messageUsername(message));
     }
     send(socket, {
@@ -1557,6 +1721,9 @@ function handleMessage(socket, raw) {
       team: change.team,
       hole: change.hole,
       value: change.nextValue,
+      mutationId: change.mutationId,
+      clientId: change.clientId,
+      clientSeq: change.clientSeq,
       version: change.version
     });
     broadcast({ type: 'state', values: sharedState.values });

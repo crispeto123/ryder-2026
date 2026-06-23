@@ -86,6 +86,9 @@
         if (message.type === 'hole-saved') {
           window.dispatchEvent(new CustomEvent('ryder-hole-saved', { detail: message }));
         }
+        if (message.type === 'hole-ignored') {
+          window.dispatchEvent(new CustomEvent('ryder-hole-ignored', { detail: message }));
+        }
         if (message.type === 'finalize-rejected' || message.type === 'sync-warning') {
           window.dispatchEvent(new CustomEvent('ryder-sync-warning', {
             detail: {
@@ -123,8 +126,8 @@
     save(values, username = '') {
       return sendMutation({ type: 'set-state', values, username });
     },
-    setHole(matchId, team, hole, value, username = '') {
-      return sendMutation({ type: 'set-hole', matchId, team, hole, value, username });
+    setHole(matchId, team, hole, value, username = '', meta = {}) {
+      return sendMutation({ type: 'set-hole', matchId, team, hole, value, username, ...meta });
     },
     finalize(matchId, values, finalization, username = '') {
       return sendMutation({ type: 'finalize-match', matchId, values, finalization, username });

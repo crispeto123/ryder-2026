@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Ryder 2026 | Tabla de Puntos</title>
-  <link rel="stylesheet" href="css/styles.css?v=20260622-05" />
+  <link rel="stylesheet" href="css/styles.css?v=20260622-06" />
 </head>
 <body>
   <header class="app-header">
@@ -196,6 +196,27 @@
               </tr>
             </thead>
             <tbody id="individualsBody"></tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="card mt admin-audit">
+        <div class="section-title">
+          <div>
+            <h2>Auditoria</h2>
+          </div>
+          <button id="btnRefreshAudit" class="btn secondary" type="button">Actualizar</button>
+        </div>
+        <div class="table-wrap">
+          <table class="audit-table">
+            <thead>
+              <tr>
+                <th>Hora</th><th>Accion</th><th>Usuario</th><th>Partido</th><th>Detalle</th>
+              </tr>
+            </thead>
+            <tbody id="auditBody">
+              <tr><td colspan="5">Sin datos.</td></tr>
+            </tbody>
           </table>
         </div>
       </article>
