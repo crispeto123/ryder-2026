@@ -893,9 +893,9 @@ function pdfLinesForMatch(match, finalization) {
     `Partido: ${match.title}`,
     `Tigers: ${roster.tigers || '-'}`,
     `Firmas: ${roster.firmas || '-'}`,
-    `Resultado: ${finalization.result || '-'}`,
-    `Finalizado por: ${finalization.finalizedBy || '-'}`,
-    `Fecha finalizacion: ${formatColombiaDateTime(finalization.finalizedAt)}`,
+    `Resultado: ${downloadedResultLabel(match, finalization)}`,
+    `Finalizado por: ${finalizedByLabel(finalization)}`,
+    `Fecha / usuario: ${finalizedMetaLabel(finalization)}`,
     `Firmas registradas: Tigers ${finalization.signatures?.tigers ? 'SI' : 'NO'} / Firmas ${finalization.signatures?.firmas ? 'SI' : 'NO'}`,
     '',
     'Hoyo     Tigers     Firmas'
@@ -956,6 +956,37 @@ function printScoreRows(match) {
       firmaScore: firmaScore || '-'
     };
   });
+}
+
+function downloadedResultLabel(match, finalization) {
+  const values = appState();
+  const scores = values.values?.[match.id] || {};
+  const tigers = Array.isArray(scores.tigers) ? scores.tigers : [];
+  const firmas = Array.isArray(scores.firmas) ? scores.firmas : [];
+  let difference = 0;
+  let played = 0;
+  for (let index = 0; index < Number(match.holes || 0); index += 1) {
+    const tigerScore = Number(tigers[index]);
+    const firmaScore = Number(firmas[index]);
+    if (Number.isFinite(tigerScore) && Number.isFinite(firmaScore) && tigerScore > 0 && firmaScore > 0) {
+      played += 1;
+      if (tigerScore < firmaScore) difference += 1;
+      if (firmaScore < tigerScore) difference -= 1;
+    }
+  }
+  if (!played && finalization?.result) return String(finalization.result).toUpperCase();
+  if (difference === 0) return 'FINALIZADO AS EMPATE';
+  return `FINALIZADO ${Math.abs(difference)}UP GANA ${difference > 0 ? 'TIGERS' : 'FIRMAS'}`;
+}
+
+function finalizedByLabel(finalization) {
+  return finalization?.finalizedBy || '-';
+}
+
+function finalizedMetaLabel(finalization) {
+  const date = formatColombiaDateTime(finalization?.finalizedAt);
+  const user = finalizedByLabel(finalization);
+  return `${date} / ${user}`;
 }
 
 function signatureBlock(teamLabel, signature) {
@@ -1037,7 +1068,8 @@ function buildMatchImageSvg(match, finalization) {
   const height = signatureY + 170;
   const tigersLogo = assetDataUri('tigers-header.png');
   const firmasLogo = assetDataUri('firmas-header.png');
-  const finalizedAt = formatColombiaDateTime(finalization.finalizedAt);
+  const result = downloadedResultLabel(match, finalization);
+  const finalizedMeta = finalizedMetaLabel(finalization);
   const scoreGrid = rows.length > 9
     ? `${buildScoreGridSvg(rows, roster, 0, tableY)}${buildScoreGridSvg(rows, roster, 9, tableY + 136)}`
     : buildScoreGridSvg(rows, roster, 0, tableY);
@@ -1062,13 +1094,13 @@ function buildMatchImageSvg(match, finalization) {
   <text x="780" y="184" text-anchor="middle" class="team">FIRMAS</text>
   ${svgTextLines(roster.firmas || '-', 780, 218, { className: 'players', maxChars: 24 })}
   <rect x="54" y="318" width="852" height="52" rx="14" fill="rgba(245,158,11,0.08)" stroke="rgba(245,158,11,0.55)" stroke-width="2"/>
-  <text x="480" y="353" text-anchor="middle" class="result">${svgEscape(finalization.result || 'FINALIZADO')}</text>
+  <text x="480" y="353" text-anchor="middle" class="result">${svgEscape(result)}</text>
   <text x="120" y="402" class="metaLabel">Modalidad</text>
   <text x="120" y="424" class="metaValue">${svgEscape(match.type)}</text>
   <text x="390" y="402" class="metaLabel">Partido</text>
   <text x="390" y="424" class="metaValue">${svgEscape(match.title)}</text>
-  <text x="650" y="402" class="metaLabel">Finalizado</text>
-  <text x="650" y="424" class="metaValue">${svgEscape(finalizedAt)}</text>
+  <text x="650" y="402" class="metaLabel">Fecha / usuario</text>
+  <text x="650" y="424" class="metaValue">${svgEscape(finalizedMeta)}</text>
   ${scoreGrid}
   <rect x="54" y="${signatureY}" width="400" height="118" rx="14" class="card"/>
   <text x="254" y="${signatureY + 28}" text-anchor="middle" class="sigTitle">FIRMA TIGERS</text>
@@ -1093,8 +1125,8 @@ function buildMatchPrintHtml(match, finalization) {
       <td>${htmlEscape(row.firmaScore)}</td>
     </tr>
   `).join('');
-  const finalizedAt = formatColombiaDateTime(finalization.finalizedAt);
-  const result = finalization.result || 'FINALIZADO';
+  const finalizedMeta = finalizedMetaLabel(finalization);
+  const result = downloadedResultLabel(match, finalization);
   return `<!doctype html>
 <html lang="es">
 <head>
@@ -1360,7 +1392,7 @@ function buildMatchPrintHtml(match, finalization) {
     <section class="meta">
       <div>Modalidad<strong>${htmlEscape(match.type)}</strong></div>
       <div>Partido<strong>${htmlEscape(match.title)}</strong></div>
-      <div>Finalizado<strong>${htmlEscape(finalizedAt)}</strong></div>
+      <div>Fecha / usuario<strong>${htmlEscape(finalizedMeta)}</strong></div>
     </section>
     <table>
       <thead>
