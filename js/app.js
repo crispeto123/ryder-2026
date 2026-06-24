@@ -696,6 +696,35 @@ async function loadAuditLog() {
   }
 }
 
+async function clearAuditLog() {
+  if (!isAdminUser()) return;
+  if (!confirm('Esta accion limpiara la auditoria visible. ¿Deseas continuar?')) return;
+  const button = document.getElementById('btnClearAudit');
+  const previousText = button?.textContent || '';
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Limpiando...';
+  }
+  try {
+    const response = await fetch(`/api/audit?user=${encodeURIComponent(currentUsername())}`, {
+      method: 'DELETE',
+      cache: 'no-store'
+    });
+    const data = await response.json();
+    if (!response.ok || !data.ok) throw new Error(data.error || 'No fue posible limpiar auditoria');
+    state.auditLog = Array.isArray(data.items) ? data.items : [];
+    renderAuditLog();
+  } catch (error) {
+    alert(error.message || 'No fue posible limpiar auditoria.');
+    console.warn(error);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = previousText;
+    }
+  }
+}
+
 function calculateMatch(matchId) {
   const match = state.matches.find(item => item.id === matchId);
   const holes = holesForMatch(match);
@@ -1890,6 +1919,7 @@ function bindEvents() {
   document.getElementById('btnClearPairs').addEventListener('click', clearPairs);
   document.getElementById('btnClearIndividuals').addEventListener('click', clearIndividuals);
   document.getElementById('btnRefreshAudit').addEventListener('click', loadAuditLog);
+  document.getElementById('btnClearAudit').addEventListener('click', clearAuditLog);
   document.getElementById('btnCancelReset').addEventListener('click', closeResetModal);
   document.getElementById('btnConfirmReset').addEventListener('click', resetAll);
   document.getElementById('btnClearSignature').addEventListener('click', clearAllSignatures);

@@ -1504,12 +1504,16 @@ function serveMatchImage(url, res) {
   return true;
 }
 
-function serveAuditLog(url, res) {
+function serveAuditLog(url, res, method = 'GET') {
   const username = url.searchParams.get('user') || '';
   if (!userIsAdmin(username)) {
     res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
     res.end(JSON.stringify({ ok: false, error: 'Solo administradores' }));
     return true;
+  }
+  if (method === 'DELETE') {
+    db.prepare('DELETE FROM audit_log').run();
+    audit('clear-audit', { clearedBy: username }, null, username);
   }
   const rows = db.prepare(`
     SELECT id, action, match_id AS matchId, username, payload, created_at AS createdAt
@@ -1556,7 +1560,7 @@ function serveStatic(req, res) {
     return;
   }
   if (url.pathname === '/api/audit') {
-    serveAuditLog(url, res);
+    serveAuditLog(url, res, req.method);
     return;
   }
   if (url.pathname === '/api/health') {
