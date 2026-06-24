@@ -3,11 +3,37 @@
   let socket = null;
   let connected = false;
   let heartbeatTimer = null;
+  let reconnectTimer = null;
+  let offlineTimer = null;
+  let reconnectAttempt = 0;
   let lastPongAt = 0;
 
   function notifyStatus(status) {
     document.documentElement.dataset.sync = status;
     window.dispatchEvent(new CustomEvent('ryder-sync-status', { detail: { status } }));
+  }
+
+  function clearOfflineTimer() {
+    if (offlineTimer) window.clearTimeout(offlineTimer);
+    offlineTimer = null;
+  }
+
+  function showOfflineAfterGrace() {
+    clearOfflineTimer();
+    notifyStatus('connecting');
+    offlineTimer = window.setTimeout(() => {
+      if (!connected) notifyStatus('local');
+    }, 6500);
+  }
+
+  function scheduleReconnect(initialValues) {
+    if (reconnectTimer) return;
+    const delay = Math.min(8000, 1500 + (reconnectAttempt * 1000));
+    reconnectAttempt += 1;
+    reconnectTimer = window.setTimeout(() => {
+      reconnectTimer = null;
+      connect(initialValues);
+    }, delay);
   }
 
   function wsUrl() {
@@ -52,7 +78,7 @@
       if (!send({ type: 'ping', at: Date.now() })) return;
       if (Date.now() - lastPongAt > 45000) {
         connected = false;
-        notifyStatus('local');
+        showOfflineAfterGrace();
         try { socket?.close(); } catch {}
       }
     }, 15000);
@@ -63,12 +89,15 @@
       notifyStatus('local');
       return;
     }
+    if (socket && [WebSocket.OPEN, WebSocket.CONNECTING].includes(socket.readyState)) return;
 
     socket = new WebSocket(wsUrl());
     notifyStatus('connecting');
 
     socket.addEventListener('open', () => {
       connected = true;
+      reconnectAttempt = 0;
+      clearOfflineTimer();
       notifyStatus('online');
       startHeartbeat();
       send({ type: 'hello', values: initialValues || {} });
@@ -106,15 +135,17 @@
 
     socket.addEventListener('close', () => {
       connected = false;
+      socket = null;
       stopHeartbeat();
-      notifyStatus('local');
-      window.setTimeout(() => connect(initialValues), 1500);
+      showOfflineAfterGrace();
+      scheduleReconnect(initialValues);
     });
 
     socket.addEventListener('error', () => {
       connected = false;
       stopHeartbeat();
-      notifyStatus('local');
+      showOfflineAfterGrace();
+      try { socket?.close(); } catch {}
     });
   }
 

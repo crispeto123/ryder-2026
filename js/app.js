@@ -34,6 +34,8 @@ const pendingFinalizations = new Set();
 const pendingFinalizationTimers = new Map();
 const pendingHoleSaves = new Map();
 const savedHoleTimers = new Map();
+let playerSaveTimer = null;
+let pendingPlayerViewRefresh = false;
 const signatureInk = { tigers: false, firmas: false };
 
 function toBoolean(value) {
@@ -512,6 +514,25 @@ function clearSession() {
 function saveState(options = {}) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(stateSnapshot()));
   if (!applyingRemoteState && options.sync !== false) window.RyderSync?.save(stateSnapshot(), currentUsername());
+}
+
+function flushPlayerSave() {
+  if (playerSaveTimer) window.clearTimeout(playerSaveTimer);
+  playerSaveTimer = null;
+  saveState();
+  if (pendingPlayerViewRefresh) {
+    renderTeamOptions();
+    renderResultsTable();
+    renderCards();
+  }
+  pendingPlayerViewRefresh = false;
+}
+
+function schedulePlayerSave(shouldRefreshViews = false) {
+  saveState({ sync: false });
+  pendingPlayerViewRefresh = pendingPlayerViewRefresh || shouldRefreshViews;
+  if (playerSaveTimer) window.clearTimeout(playerSaveTimer);
+  playerSaveTimer = window.setTimeout(flushPlayerSave, 700);
 }
 
 function applyRemoteState(snapshot) {
@@ -1571,10 +1592,18 @@ function onPlayerInput(event) {
   const item = state.players.find(entry => String(entry.id) === String(player));
   if (!item) return;
   item[field] = field === 'isAdmin' ? toBoolean(input.value) : input.value;
-  saveState();
-  renderTeamOptions();
-  renderResultsTable();
-  renderCards();
+  if (event.type === 'input' && ['name', 'username', 'password'].includes(field)) {
+    schedulePlayerSave(field === 'name');
+    return;
+  }
+  const hadPendingSave = Boolean(playerSaveTimer);
+  if (hadPendingSave) flushPlayerSave();
+  if (!hadPendingSave) saveState();
+  if (field === 'team' || field === 'name') {
+    renderTeamOptions();
+    renderResultsTable();
+    renderCards();
+  }
 }
 
 function togglePlayerPassword(event) {
