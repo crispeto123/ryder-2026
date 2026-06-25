@@ -23,6 +23,7 @@ const state = {
   cardsStatusFilter: 'Todos',
   resultsTeamSearch: '',
   cardsTeamSearch: '',
+  playersSearch: '',
   auditLog: [],
   currentUser: null
 };
@@ -1160,12 +1161,26 @@ function playerAdminSelect(player) {
   </select>`;
 }
 
+function playerMatchesSearch(player) {
+  const query = normalizeSearch(state.playersSearch);
+  if (!query) return true;
+  return [
+    player.team,
+    player.name,
+    player.username,
+    toBoolean(player.isAdmin) ? 'admin true si' : 'admin false no',
+    playerSelectionStatus(player.name, 'pairs') ? 'parejas true si' : 'parejas false no',
+    playerSelectionStatus(player.name, 'individuals') ? 'individuales true si' : 'individuales false no'
+  ].some(value => normalizeSearch(value).includes(query));
+}
+
 function renderRoster() {
   const playersBody = document.getElementById('playersBody');
   const pairsBody = document.getElementById('pairsBody');
   const individualsBody = document.getElementById('individualsBody');
   if (playersBody) {
-    playersBody.innerHTML = state.players.map(player => `
+    const visiblePlayers = state.players.filter(playerMatchesSearch);
+    playersBody.innerHTML = visiblePlayers.length ? visiblePlayers.map(player => `
       <tr>
         <td>${playerTeamSelect(player)}</td>
         <td>${playerInput(player, 'name')}</td>
@@ -1175,7 +1190,7 @@ function renderRoster() {
         <td>${playerPasswordInput(player)}</td>
         <td>${playerAdminSelect(player)}</td>
       </tr>
-    `).join('');
+    `).join('') : '<tr><td colspan="7" class="empty-state">Sin jugadores para esa busqueda.</td></tr>';
   }
   if (pairsBody) {
     pairsBody.innerHTML = state.pairs.map(pair => `
@@ -1887,6 +1902,10 @@ function bindEvents() {
     state.cardsTeamSearch = event.target.value;
     renderCards();
   }));
+  document.getElementById('playersSearch').addEventListener('input', event => {
+    state.playersSearch = event.target.value;
+    renderRoster();
+  });
   document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => {
     if (!canAccessTab(tab.dataset.tab)) return;
     setActiveTab(tab.dataset.tab);
