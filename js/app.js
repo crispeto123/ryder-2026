@@ -1737,7 +1737,8 @@ function clearPairs() {
     return;
   }
   if (!resetUnlockedRosterItems('parejas', state.pairs, pairIsLocked)) return;
-  saveState();
+  saveState({ sync: false });
+  window.RyderSync?.save(stateSnapshot(), currentUsername(), { allowRosterClear: 'pairs' });
   closePlayerPicker();
   renderTeamOptions();
   renderResultsTable();
@@ -1751,7 +1752,8 @@ function clearIndividuals() {
     return;
   }
   if (!resetUnlockedRosterItems('individuales', state.individuals, individualIsLocked)) return;
-  saveState();
+  saveState({ sync: false });
+  window.RyderSync?.save(stateSnapshot(), currentUsername(), { allowRosterClear: 'individuals' });
   closePlayerPicker();
   renderTeamOptions();
   renderResultsTable();

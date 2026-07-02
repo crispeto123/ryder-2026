@@ -154,8 +154,8 @@
       if (typeof onState === 'function') listeners.add(onState);
       connect(initialValues);
     },
-    save(values, username = '') {
-      return sendMutation({ type: 'set-state', values, username });
+    save(values, username = '', meta = {}) {
+      return sendMutation({ type: 'set-state', values, username, ...meta });
     },
     setHole(matchId, team, hole, value, username = '', meta = {}) {
       return sendMutation({ type: 'set-hole', matchId, team, hole, value, username, ...meta });

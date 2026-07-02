@@ -686,12 +686,30 @@ function shouldUseIncomingRoster(current, incoming) {
   return incomingPlayers >= currentPlayers;
 }
 
-function mergeRosterState(current, next, incoming) {
+function rosterHasNames(item) {
+  return !isPlaceholder(item?.tigers) || !isPlaceholder(item?.firmas);
+}
+
+function mergeRosterCollection(currentItems = [], incomingItems = [], allowClear = false) {
+  const incomingById = new Map(incomingItems.map(item => [Number(item.id), item]));
+  return currentItems.map(currentItem => {
+    const incomingItem = incomingById.get(Number(currentItem.id));
+    if (!incomingItem) return currentItem;
+    if (!allowClear && rosterHasNames(currentItem) && !rosterHasNames(incomingItem)) return currentItem;
+    return incomingItem;
+  });
+}
+
+function mergeRosterState(current, next, incoming, options = {}) {
   if (shouldUseIncomingRoster(current, incoming)) {
     next.players = incoming.players;
     if (Array.isArray(incoming.systemUsers)) next.systemUsers = incoming.systemUsers;
-    if (Array.isArray(incoming.pairs)) next.pairs = incoming.pairs;
-    if (Array.isArray(incoming.individuals)) next.individuals = incoming.individuals;
+    if (Array.isArray(incoming.pairs)) {
+      next.pairs = mergeRosterCollection(current.pairs || defaultPairs(), incoming.pairs, options.allowRosterClear === 'pairs');
+    }
+    if (Array.isArray(incoming.individuals)) {
+      next.individuals = mergeRosterCollection(current.individuals || defaultIndividuals(), incoming.individuals, options.allowRosterClear === 'individuals');
+    }
     return;
   }
 
@@ -717,7 +735,7 @@ function mergeIncomingState(incoming, options = {}) {
   const currentFinalizations = current.finalizations || {};
   const incomingFinalizations = next.finalizations || {};
   next.finalizations = { ...incomingFinalizations };
-  mergeRosterState(current, next, incoming || {});
+  mergeRosterState(current, next, incoming || {}, options);
 
   Object.entries(currentFinalizations).forEach(([matchId, record]) => {
     if (!isFinalizedRecord(record)) return;
@@ -1702,7 +1720,7 @@ function handleMessage(socket, raw) {
     if (incomingValues.settings && !userIsAdmin(messageUsername(message))) {
       incomingValues.settings = appState().settings || loadSettingsFromDb();
     }
-    mergeIncomingState(incomingValues);
+    mergeIncomingState(incomingValues, { allowRosterClear: message.allowRosterClear || '' });
     saveSharedState();
     audit('set-state', {
       players: Array.isArray(incomingValues.players) ? incomingValues.players.length : 0,
