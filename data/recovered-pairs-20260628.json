@@ -1,0 +1,16 @@
+[
+  { "id": 1, "tigers": "Giovany & Ivan", "firmas": "Matera & Juanjo" },
+  { "id": 2, "tigers": "Farrio & London", "firmas": "Hueso & Amado" },
+  { "id": 3, "tigers": "Ocampo & Willi", "firmas": "Jaime & Urraka" },
+  { "id": 4, "tigers": "Mauro & Asmed", "firmas": "Alba & Mello" },
+  { "id": 5, "tigers": "Jorgys & Diomedez", "firmas": "Checho & Mara" },
+  { "id": 6, "tigers": "Moreno & Peter", "firmas": "Pantera & Chica" },
+  { "id": 7, "tigers": "Tomas & Pablito", "firmas": "Fede & Pato" },
+  { "id": 8, "tigers": "Jaba & Pichon", "firmas": "Dagorx & Sega" },
+  { "id": 9, "tigers": "Tatan & Gaviria", "firmas": "Enano & SebasZ" },
+  { "id": 10, "tigers": "Guaji & Guille", "firmas": "Ternero & Tego" },
+  { "id": 11, "tigers": "Alvaro & JorgeR", "firmas": "Conejo & Kolo" },
+  { "id": 12, "tigers": "Tatu & Totumo", "firmas": "Smith & Majin" },
+  { "id": 13, "tigers": "Bolivar & Nacho", "firmas": "Jero & Salchi" },
+  { "id": 14, "tigers": "Raton & Yeison", "firmas": "Tuber & Castor" }
+]

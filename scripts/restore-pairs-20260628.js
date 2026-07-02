@@ -5,23 +5,9 @@ const { DatabaseSync } = require('node:sqlite');
 const ROOT = path.resolve(__dirname, '..');
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, 'data');
 const DB_FILE = path.join(DATA_DIR, 'ryder.sqlite');
+const RECOVERED_PAIRS_FILE = path.join(ROOT, 'data', 'recovered-pairs-20260628.json');
 
-const RECOVERED_PAIRS = [
-  { id: 1, tigers: 'Giovany & Ivan', firmas: 'Matera & Juanjo' },
-  { id: 2, tigers: 'Farrio & London', firmas: 'Hueso & Amado' },
-  { id: 3, tigers: 'Ocampo & Willi', firmas: 'Jaime & Urraka' },
-  { id: 4, tigers: 'Mauro & Asmed', firmas: 'Alba & Mello' },
-  { id: 5, tigers: 'Jorgys & Diomedez', firmas: 'Checho & Mara' },
-  { id: 6, tigers: 'Moreno & Peter', firmas: 'Pantera & Chica' },
-  { id: 7, tigers: 'Tomas & Pablito', firmas: 'Fede & Pato' },
-  { id: 8, tigers: 'Jaba & Pichon', firmas: 'Dagorx & Sega' },
-  { id: 9, tigers: 'Tatan & Gaviria', firmas: 'Enano & SebasZ' },
-  { id: 10, tigers: 'Guaji & Guille', firmas: 'Ternero & Tego' },
-  { id: 11, tigers: 'Alvaro & JorgeR', firmas: 'Conejo & Kolo' },
-  { id: 12, tigers: 'Tatu & Totumo', firmas: 'Smith & Majin' },
-  { id: 13, tigers: 'Bolivar & Nacho', firmas: 'Jero & Salchi' },
-  { id: 14, tigers: 'Raton & Yeison', firmas: 'Tuber & Castor' }
-];
+const RECOVERED_PAIRS = JSON.parse(fs.readFileSync(RECOVERED_PAIRS_FILE, 'utf8'));
 
 function normalize(value) {
   return String(value || '').trim().toLocaleLowerCase('es-CO');
