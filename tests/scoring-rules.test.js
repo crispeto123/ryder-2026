@@ -34,7 +34,7 @@ function loadScoring({ matches, players, systemUsers, pairs, individuals }) {
 
   vm.runInNewContext(
     `${pureSource}
-globalThis.__RyderTest = { state, ensureStateShape, calculateMatch, calculateTotals, holesForMatch, teamName, canEditMatch, filteredMatches, isFinalized, matchResultLabel, matchProgressLabel, winnerLabel, canFinalizeMatch, canAccessTab, pairIsLocked, individualIsLocked, rosterItemIsLocked };`,
+globalThis.__RyderTest = { state, ensureStateShape, calculateMatch, calculateTotals, holesForMatch, teamName, canEditMatch, filteredMatches, isFinalized, matchResultLabel, matchProgressLabel, winnerLabel, canFinalizeMatch, canAccessTab, pairIsLocked, individualIsLocked, rosterItemIsLocked, totalDisputedPoints };`,
     context,
     { filename: 'js/app.js' }
   );
@@ -66,6 +66,42 @@ function winnerValues(holes, winner) {
 
 function expectedPointsForMatch(match) {
   return match.type === 'Individual' ? 2 : 1;
+}
+
+function addRosterPlayers(scoring) {
+  if (scoring.state.players.some(player => player.name === 'Tigers 01')) return;
+  for (let index = 1; index <= 28; index += 1) {
+    scoring.state.players.push(
+      { id: 100 + index, team: 'Tigers', name: `Tigers ${String(index).padStart(2, '0')}`, username: `t${index}`, password: '1', isAdmin: false },
+      { id: 200 + index, team: 'Firmas', name: `Firmas ${String(index).padStart(2, '0')}`, username: `f${index}`, password: '1', isAdmin: false }
+    );
+  }
+}
+
+function configureFirstPair(scoring) {
+  addRosterPlayers(scoring);
+  scoring.state.pairs[0].tigers = 'Tigers 01 & Tigers 02';
+  scoring.state.pairs[0].firmas = 'Firmas 01 & Firmas 02';
+}
+
+function configureFirstIndividual(scoring) {
+  addRosterPlayers(scoring);
+  scoring.state.individuals[0].tigers = 'Tigers 01';
+  scoring.state.individuals[0].firmas = 'Firmas 01';
+}
+
+function configureAllRosters(scoring) {
+  addRosterPlayers(scoring);
+  scoring.state.pairs.forEach(pair => {
+    const first = ((pair.id - 1) * 2) + 1;
+    const second = first + 1;
+    pair.tigers = `Tigers ${String(first).padStart(2, '0')} & Tigers ${String(second).padStart(2, '0')}`;
+    pair.firmas = `Firmas ${String(first).padStart(2, '0')} & Firmas ${String(second).padStart(2, '0')}`;
+  });
+  scoring.state.individuals.forEach(individual => {
+    individual.tigers = `Tigers ${String(individual.id).padStart(2, '0')}`;
+    individual.firmas = `Firmas ${String(individual.id).padStart(2, '0')}`;
+  });
 }
 
 function assertStartedMatchesUseConfiguredPointValue(scoring) {
@@ -122,6 +158,7 @@ for (let id = 1; id <= 28; id += 1) {
 {
   const scoring = loadScoring(tournamentData);
   scoring.ensureStateShape();
+  configureFirstPair(scoring);
   scoring.state.values['scramble-01'] = {
     tigers: ['4', '4', '4', '4', '4', '4', '3', '3', ''],
     firmas: ['4', '4', '4', '4', '4', '4', '4', '4', '']
@@ -182,6 +219,8 @@ for (let id = 1; id <= 28; id += 1) {
   );
   scoring.state.pairs[0].tigers = 'Ocampo & Tigers Dos';
   scoring.state.pairs[0].firmas = 'Firma Uno & Firma Dos';
+  scoring.state.individuals[0].tigers = 'Ocampo';
+  scoring.state.individuals[0].firmas = 'Firma Uno';
   scoring.state.values['scramble-01'] = {
     tigers: ['4', '', '', '', '', '', '', '', ''],
     firmas: ['5', '', '', '', '', '', '', '', '']
@@ -200,7 +239,7 @@ for (let id = 1; id <= 28; id += 1) {
 
   scoring.state.cardsStatusFilter = 'Sin iniciar';
   assert.strictEqual(scoring.filteredMatches('tarjetas').some(match => match.id === 'scramble-01'), false);
-  assert.strictEqual(scoring.filteredMatches('tarjetas').some(match => match.id === 'individual-01'), false);
+  assert.strictEqual(scoring.filteredMatches('tarjetas').some(match => match.id === 'individual-01'), true);
 
   scoring.state.cardsStatusFilter = 'En el campo';
   assert.deepStrictEqual(scoring.filteredMatches('tarjetas').map(match => match.id), ['scramble-01']);
@@ -336,9 +375,33 @@ for (let id = 1; id <= 28; id += 1) {
 
   assert.strictEqual(totals.started, 0);
   assert.strictEqual(totals.finalized, 0);
-  assert.strictEqual(totals.byType.Scramble.tigers + totals.byType.Scramble.firmas, 0);
-  assert.strictEqual(totals.byType['Golpe a Golpe'].tigers + totals.byType['Golpe a Golpe'].firmas, 0);
-  assert.strictEqual(totals.byType.Individual.tigers + totals.byType.Individual.firmas, 0);
+  assert.strictEqual((totals.byType.Scramble?.tigers || 0) + (totals.byType.Scramble?.firmas || 0), 0);
+  assert.strictEqual((totals.byType['Golpe a Golpe']?.tigers || 0) + (totals.byType['Golpe a Golpe']?.firmas || 0), 0);
+  assert.strictEqual((totals.byType.Individual?.tigers || 0) + (totals.byType.Individual?.firmas || 0), 0);
+}
+
+{
+  const scoring = loadScoring(tournamentData);
+  scoring.ensureStateShape();
+  configureFirstPair(scoring);
+  configureFirstIndividual(scoring);
+  scoring.state.individuals[1].tigers = 'Tigers 02';
+  scoring.state.individuals[1].firmas = 'Firmas 02';
+
+  assert.deepStrictEqual(scoring.filteredMatches('tarjetas').map(match => match.id), [
+    'scramble-01',
+    'golpe-01',
+    'individual-01',
+    'individual-02'
+  ]);
+  assert.strictEqual(scoring.totalDisputedPoints(), 6);
+
+  scoring.state.settings.matchPoints = {
+    Scramble: 0.5,
+    'Golpe a Golpe': 1.5,
+    Individual: 3
+  };
+  assert.strictEqual(scoring.totalDisputedPoints(), 8);
 }
 
 {
@@ -379,6 +442,7 @@ for (let id = 1; id <= 28; id += 1) {
 {
   const scoring = loadScoring(tournamentData);
   scoring.ensureStateShape();
+  configureAllRosters(scoring);
   for (const match of scoring.state.matches) {
     scoring.state.values[match.id] = startedTieValues(scoring.holesForMatch(match));
   }
@@ -390,6 +454,7 @@ for (let id = 1; id <= 28; id += 1) {
 {
   const scoring = loadScoring(tournamentData);
   scoring.ensureStateShape();
+  configureAllRosters(scoring);
   for (const [index, match] of scoring.state.matches.entries()) {
     scoring.state.values[match.id] = winnerValues(
       scoring.holesForMatch(match),

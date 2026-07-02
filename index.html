@@ -39,6 +39,7 @@
       <button class="tab active" data-tab="resultados">Resultados</button>
       <button class="tab" data-tab="resultados-tv">Resultados TV</button>
       <button class="tab" data-tab="tarjetas">Tarjetas</button>
+      <button class="tab" data-tab="partidos">Partidos</button>
       <button class="tab" data-tab="equipos">Equipos</button>
       <label id="cardsEditingToggleWrap" class="admin-toggle" hidden>
         <input id="cardsEditingToggle" type="checkbox" />
@@ -140,6 +141,26 @@
           </div>
         </div>
         <div id="cardsContainer" class="cards-container"></div>
+      </article>
+    </section>
+
+    <section id="partidos" class="tab-panel">
+      <article class="card">
+        <div class="section-title">
+          <div>
+            <h2>Partidos</h2>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="match-points-table">
+            <thead>
+              <tr>
+                <th>Tipo</th><th>Partidos configurados</th><th>Puntos por partido</th><th>Puntos en disputa</th>
+              </tr>
+            </thead>
+            <tbody id="matchPointsBody"></tbody>
+          </table>
+        </div>
       </article>
     </section>
 
@@ -318,6 +339,6 @@
 
   <script src="data/matches.js"></script>
   <script src="js/sync-adapter.js?v=20260701-01"></script>
-  <script src="js/app.js?v=20260701-01"></script>
+  <script src="js/app.js?v=20260701-02"></script>
 </body>
 </html>

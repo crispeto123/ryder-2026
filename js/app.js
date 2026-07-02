@@ -5,6 +5,11 @@ const CLIENT_ID_KEY = 'ryder-2026-client-id';
 const CLIENT_SEQ_KEY = 'ryder-2026-client-seq';
 const HOLES = 9;
 const INDIVIDUAL_HOLES = 18;
+const DEFAULT_MATCH_POINTS = {
+  Scramble: 1,
+  'Golpe a Golpe': 1,
+  Individual: 2
+};
 
 const state = {
   matches: structuredClone(window.RYDER_MATCHES || []),
@@ -15,7 +20,8 @@ const state = {
   values: {},
   finalizations: {},
   settings: {
-    cardsEditingEnabled: false
+    cardsEditingEnabled: false,
+    matchPoints: { ...DEFAULT_MATCH_POINTS }
   },
   resultsFilter: 'Todas',
   resultsStatusFilter: 'Todos',
@@ -401,6 +407,29 @@ function renderSettingsControls() {
   }
 }
 
+function configuredMatchesByType(type) {
+  return configuredMatches().filter(match => match.type === type);
+}
+
+function renderMatchPointSettings() {
+  const body = document.getElementById('matchPointsBody');
+  if (!body) return;
+  const points = matchPointSettings();
+  body.innerHTML = Object.keys(DEFAULT_MATCH_POINTS).map(type => {
+    const matches = configuredMatchesByType(type);
+    const value = Number(points[type] ?? DEFAULT_MATCH_POINTS[type]);
+    const disputed = matches.length * (Number.isFinite(value) ? value : 0);
+    return `
+      <tr>
+        <td><span class="badge small">${type}</span></td>
+        <td><strong class="summary-points">${matches.length}</strong></td>
+        <td><input class="player-input match-point-input" type="number" min="0" step="0.5" value="${escapeHtml(value)}" data-match-type="${escapeHtml(type)}" aria-label="Puntos ${escapeHtml(type)}"></td>
+        <td><strong class="summary-points">${formatNumber(disputed)}</strong></td>
+      </tr>
+    `;
+  }).join('');
+}
+
 function mergePlayers(savedPlayers = []) {
   const byId = new Map(structuredClone(window.RYDER_PLAYERS || []).map(player => [String(player.id), player]));
   savedPlayers.forEach(player => {
@@ -421,12 +450,21 @@ function holesForMatch(match) {
   return match?.type === 'Individual' ? INDIVIDUAL_HOLES : HOLES;
 }
 
+function matchPointSettings() {
+  return { ...DEFAULT_MATCH_POINTS, ...(state.settings?.matchPoints || {}) };
+}
+
 function pointsForMatch(match) {
-  return match?.type === 'Individual' ? 2 : 1;
+  const value = Number(matchPointSettings()[match?.type]);
+  return Number.isFinite(value) && value >= 0 ? value : DEFAULT_MATCH_POINTS[match?.type] || 0;
+}
+
+function configuredMatches() {
+  return state.matches.filter(matchHasValidRoster);
 }
 
 function totalDisputedPoints() {
-  return state.matches.reduce((total, match) => total + pointsForMatch(match), 0);
+  return configuredMatches().reduce((total, match) => total + pointsForMatch(match), 0);
 }
 
 function emptyMatchValues(holes = HOLES) {
@@ -474,7 +512,8 @@ function applySnapshot(snapshot) {
   state.values = Object.hasOwn(snapshot, 'values') ? snapshot.values : {};
   state.finalizations = Object.hasOwn(snapshot, 'finalizations') ? snapshot.finalizations : {};
   state.settings = {
-    cardsEditingEnabled: toBoolean(snapshot.settings?.cardsEditingEnabled)
+    cardsEditingEnabled: toBoolean(snapshot.settings?.cardsEditingEnabled),
+    matchPoints: { ...DEFAULT_MATCH_POINTS, ...(snapshot.settings?.matchPoints || {}) }
   };
   if (Array.isArray(snapshot.players)) state.players = mergePlayers(snapshot.players);
   if (Array.isArray(snapshot.systemUsers)) state.systemUsers = snapshot.systemUsers;
@@ -766,7 +805,7 @@ function calculateMatch(matchId) {
 }
 
 function calculateTotals() {
-  return state.matches.reduce((acc, match) => {
+  return configuredMatches().reduce((acc, match) => {
     const calc = calculateMatch(match.id);
     acc.tigers += calc.tigersPoints;
     acc.firmas += calc.firmasPoints;
@@ -909,8 +948,7 @@ function filteredMatches(view) {
   const typeFilter = view === 'resultados' ? state.resultsFilter : state.cardsFilter;
   const teamSearch = view === 'resultados' ? state.resultsTeamSearch : state.cardsTeamSearch;
   const statusFilter = view === 'resultados' ? state.resultsStatusFilter : state.cardsStatusFilter;
-  const matches = state.matches.filter(match =>
-    (view !== 'tarjetas' || matchHasValidRoster(match)) &&
+  const matches = configuredMatches().filter(match =>
     (typeFilter === 'Todas' || match.type === typeFilter) &&
     matchHasPlayer(match, teamSearch) &&
     matchHasStatus(match, statusFilter)
@@ -1219,6 +1257,7 @@ function renderAll() {
   renderTeamOptions();
   renderResultsTable();
   renderCards();
+  renderMatchPointSettings();
   if (!editingRoster) renderRoster();
   renderAuditLog();
 }
@@ -1873,6 +1912,28 @@ function toggleCardsEditing(event) {
   renderAll();
 }
 
+function updateMatchPointSetting(event) {
+  const input = event.target.closest('.match-point-input');
+  if (!input) return;
+  if (!isAdminUser()) return;
+  if (!canWriteOnline()) {
+    warnOfflineWrite();
+    renderMatchPointSettings();
+    return;
+  }
+  const type = input.dataset.matchType;
+  const value = Math.max(0, Number(input.value || 0));
+  state.settings.matchPoints = {
+    ...matchPointSettings(),
+    [type]: Number.isFinite(value) ? value : DEFAULT_MATCH_POINTS[type]
+  };
+  saveState();
+  renderScoreboard();
+  renderResultsTable();
+  renderCards();
+  renderMatchPointSettings();
+}
+
 function bindEvents() {
   document.addEventListener('input', onInput);
   document.addEventListener('click', onCardAction);
@@ -1881,6 +1942,7 @@ function bindEvents() {
   document.addEventListener('change', onPlayerInput);
   document.addEventListener('click', togglePlayerPassword);
   document.addEventListener('change', toggleCardsEditing);
+  document.addEventListener('change', updateMatchPointSetting);
   document.addEventListener('click', chooseRosterPlayer);
   document.addEventListener('click', removeRosterPlayer);
   document.addEventListener('click', event => {

@@ -11,6 +11,11 @@ const STATE_FILE = process.env.DATA_DIR ? path.join(process.env.DATA_DIR, 'state
 const DB_FILE = process.env.DATA_DIR ? path.join(process.env.DATA_DIR, 'ryder.sqlite') : path.join(ROOT, 'data', 'ryder.sqlite');
 const BACKUP_DIR = path.join(ROOT, 'backups');
 const WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
+const DEFAULT_MATCH_POINTS = {
+  Scramble: 1,
+  'Golpe a Golpe': 1,
+  Individual: 2
+};
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -411,9 +416,14 @@ function composeFinalizationsFromDb() {
 
 function loadSettingsFromDb() {
   const rows = db.prepare('SELECT key, value FROM settings').all();
-  const settings = { cardsEditingEnabled: false };
+  const settings = { cardsEditingEnabled: false, matchPoints: { ...DEFAULT_MATCH_POINTS } };
   rows.forEach(row => {
     if (row.key === 'cardsEditingEnabled') settings.cardsEditingEnabled = row.value === 'true';
+    if (row.key === 'matchPoints') {
+      try {
+        settings.matchPoints = { ...DEFAULT_MATCH_POINTS, ...JSON.parse(row.value || '{}') };
+      } catch {}
+    }
   });
   return settings;
 }
@@ -573,6 +583,7 @@ function syncRelationalTables(state) {
     DELETE FROM system_users;
   `);
   insertSetting.run('cardsEditingEnabled', settings.cardsEditingEnabled ? 'true' : 'false', now);
+  insertSetting.run('matchPoints', JSON.stringify({ ...DEFAULT_MATCH_POINTS, ...(settings.matchPoints || {}) }), now);
   players.forEach(player => {
     insertPlayer.run(
       Number(player.id),
