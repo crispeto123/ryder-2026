@@ -291,6 +291,13 @@ function removeQueuedHoleMutation(matchId, team, hole, value, mutationId = '') {
   ));
 }
 
+function clearQueuedMatchMutations(matchId) {
+  writePendingMutations(readPendingMutations().filter(item => String(item.matchId) !== String(matchId)));
+  [...pendingHoleSaves.entries()].forEach(([key, pending]) => {
+    if (String(pending.matchId) === String(matchId)) clearPendingHoleSave(key);
+  });
+}
+
 function restoreQueuedHoleSaves() {
   readPendingMutations().forEach(item => {
     if (item.type !== 'set-hole') return;
@@ -1116,7 +1123,7 @@ function renderCards() {
       node.querySelector('.badge').textContent = match.type;
       node.querySelector('h3').textContent = matchNumber;
       const saveStatus = matchSaveStatus(match.id);
-      const actions = isFinalized(match.id)
+      const primaryAction = isFinalized(match.id)
         ? `${canEditMatch(match) ? `<button class="btn secondary card-download card-action" type="button" data-card-action="download" data-match="${match.id}">Descargar Tarjeta</button>` : ''}
           <button class="btn secondary card-action" type="button" data-card-action="unlock" data-match="${match.id}">Abrir tarjeta</button>`
         : isFinalizationPending(match.id)
@@ -1124,6 +1131,10 @@ function renderCards() {
         : canWriteMatch(match) && canFinalizeMatch(match, calc)
           ? `<button class="btn card-action" type="button" data-card-action="finalize" data-match="${match.id}">Finalizar</button>`
           : '';
+      const resetAction = isAdminUser()
+        ? `<button class="btn danger card-action" type="button" data-card-action="reset-card" data-match="${match.id}">Reiniciar tarjeta</button>`
+        : '';
+      const actions = `${primaryAction}${resetAction}`;
       node.querySelector('.match-status').innerHTML = `
         <span class="match-summary">
           <span class="summary-team summary-tigers">Tigers <strong class="${statusClass(calc.tigersStatus)}">${calc.tigersStatus}</strong> <em>${formatNumber(calc.tigersPoints)} pts</em></span>
@@ -1199,6 +1210,10 @@ function playerAdminSelect(player) {
   </select>`;
 }
 
+function trashIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6l1 15h10l1-15"/><path d="M10 10v7"/><path d="M14 10v7"/></svg>';
+}
+
 function playerMatchesSearch(player) {
   const query = normalizeSearch(state.playersSearch);
   if (!query) return true;
@@ -1227,8 +1242,9 @@ function renderRoster() {
         <td>${playerInput(player, 'username')}</td>
         <td>${playerPasswordInput(player)}</td>
         <td>${playerAdminSelect(player)}</td>
+        <td><button class="icon-button danger player-delete" type="button" data-delete-player="${player.id}" aria-label="Eliminar ${escapeHtml(player.name || 'jugador')}" title="Eliminar jugador">${trashIcon()}</button></td>
       </tr>
-    `).join('') : '<tr><td colspan="7" class="empty-state">Sin jugadores para esa busqueda.</td></tr>';
+    `).join('') : '<tr><td colspan="8" class="empty-state">Sin jugadores para esa busqueda.</td></tr>';
   }
   if (pairsBody) {
     pairsBody.innerHTML = state.pairs.map(pair => `
@@ -1499,12 +1515,34 @@ function unlockCurrentMatch() {
   renderAll();
 }
 
+function resetSingleMatch(matchId) {
+  const match = state.matches.find(item => item.id === matchId);
+  if (!match || !isAdminUser()) return;
+  if (!canWriteOnline()) {
+    warnOfflineWrite();
+    renderCards();
+    return;
+  }
+  const label = `${match.title} (${teamName(match, 'tigers') || 'Tigers'} vs ${teamName(match, 'firmas') || 'Firmas'})`;
+  if (!confirm(`Reiniciar solo esta tarjeta?\n\n${label}\n\nSe borraran hoyos, finalizacion y firmas de esta tarjeta. No se borraran jugadores, parejas ni individuales.`)) return;
+  clearQueuedMatchMutations(match.id);
+  clearPendingFinalization(match.id);
+  state.values[match.id] = emptyMatchValues(holesForMatch(match));
+  delete state.finalizations[match.id];
+  saveState({ sync: false });
+  if (!window.RyderSync?.resetMatch?.(match.id, currentUsername())) {
+    window.RyderSync?.save?.(stateSnapshot(), currentUsername());
+  }
+  renderAll();
+}
+
 function onCardAction(event) {
   const button = event.target.closest('[data-card-action]');
   if (!button) return;
   if (button.dataset.cardAction === 'finalize') openSignatureModal(button.dataset.match);
   if (button.dataset.cardAction === 'unlock') openUnlockModal(button.dataset.match);
   if (button.dataset.cardAction === 'download') downloadCardImage(button.dataset.match, button);
+  if (button.dataset.cardAction === 'reset-card') resetSingleMatch(button.dataset.match);
 }
 
 function bindSignaturePad() {
@@ -1657,6 +1695,56 @@ function removeRosterPlayer(event) {
     .join(' & ');
   saveState();
   closePlayerPicker();
+  renderTeamOptions();
+  renderResultsTable();
+  renderCards();
+  renderRoster();
+}
+
+function playerUsageLabels(player) {
+  const normalized = normalizeSearch(player?.name);
+  if (!normalized) return [];
+  const labels = [];
+  state.pairs.forEach(pair => {
+    ['tigers', 'firmas'].forEach(team => {
+      if (parseSelection(pair[team]).some(name => normalizeSearch(name) === normalized)) {
+        labels.push(`Pareja #${pair.id}`);
+      }
+    });
+  });
+  state.individuals.forEach(individual => {
+    ['tigers', 'firmas'].forEach(team => {
+      if (parseSelection(individual[team]).some(name => normalizeSearch(name) === normalized)) {
+        labels.push(`Individual #${individual.id}`);
+      }
+    });
+  });
+  return [...new Set(labels)];
+}
+
+function deletePlayer(event) {
+  const button = event.target.closest('[data-delete-player]');
+  if (!button) return;
+  if (!isAdminUser()) return;
+  if (!canWriteOnline()) {
+    warnOfflineWrite();
+    renderRoster();
+    return;
+  }
+  const player = state.players.find(item => String(item.id) === String(button.dataset.deletePlayer));
+  if (!player) return;
+  const usage = playerUsageLabels(player);
+  if (usage.length) {
+    alert(`No se puede eliminar ${player.name || 'este jugador'} porque esta usado en: ${usage.slice(0, 8).join(', ')}${usage.length > 8 ? '...' : ''}. Primero quitalo de parejas o individuales.`);
+    return;
+  }
+  if (!confirm(`Eliminar jugador ${player.name || player.username || player.id}?`)) return;
+  state.players = state.players.filter(item => String(item.id) !== String(player.id));
+  if (String(state.currentUser || '') === String(player.username || '') || normalizeSearch(state.currentUser) === normalizeSearch(player.name)) {
+    clearSession();
+    applyAccessControl();
+  }
+  saveState();
   renderTeamOptions();
   renderResultsTable();
   renderCards();
@@ -1945,6 +2033,7 @@ function bindEvents() {
   document.addEventListener('change', updateMatchPointSetting);
   document.addEventListener('click', chooseRosterPlayer);
   document.addEventListener('click', removeRosterPlayer);
+  document.addEventListener('click', deletePlayer);
   document.addEventListener('click', event => {
     const input = event.target.closest?.('.roster-input');
     if (input) openPlayerPicker(input);

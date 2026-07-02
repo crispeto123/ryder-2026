@@ -166,6 +166,9 @@
     unlock(matchId, values, username = '') {
       return sendMutation({ type: 'unlock-match', matchId, values, username });
     },
+    resetMatch(matchId, username = '') {
+      return sendMutation({ type: 'reset-match', matchId, username });
+    },
     reset(username = '') {
       return sendMutation({ type: 'reset', username });
     },

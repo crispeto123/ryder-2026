@@ -1889,6 +1889,38 @@ function handleMessage(socket, raw) {
     return;
   }
 
+  if (message.type === 'reset-match') {
+    const username = messageUsername(message);
+    const matchId = String(message.matchId || '');
+    if (!userIsAdmin(username)) {
+      audit('reset-match-rejected', { reason: 'not-admin' }, matchId || null, username);
+      send(socket, {
+        type: 'sync-warning',
+        matchId,
+        message: 'Solo un administrador puede reiniciar una tarjeta.',
+        values: sharedState.values
+      });
+      return;
+    }
+    if (!matchId) return;
+    backupSharedState(`before-reset-match-${matchId}`);
+    const current = appState();
+    const previousRows = current.values?.[matchId];
+    const previousFinalization = current.finalizations?.[matchId];
+    current.values = { ...(current.values || {}) };
+    current.finalizations = { ...(current.finalizations || {}) };
+    delete current.values[matchId];
+    delete current.finalizations[matchId];
+    sharedState = { values: current };
+    saveSharedState();
+    audit('reset-match', {
+      hadScores: Boolean(previousRows && Object.values(previousRows).flat().some(Boolean)),
+      hadFinalization: isFinalizedRecord(previousFinalization)
+    }, matchId, username);
+    broadcast({ type: 'state', values: sharedState.values });
+    return;
+  }
+
   if (message.type === 'reset') {
     if (!userIsAdmin(messageUsername(message))) {
       audit('reset-rejected', { reason: 'not-admin' }, null, messageUsername(message));
