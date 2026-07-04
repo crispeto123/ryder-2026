@@ -34,7 +34,7 @@ function loadScoring({ matches, players, systemUsers, pairs, individuals }) {
 
   vm.runInNewContext(
     `${pureSource}
-globalThis.__RyderTest = { state, ensureStateShape, calculateMatch, calculateTotals, holesForMatch, teamName, canEditMatch, filteredMatches, isFinalized, matchResultLabel, matchProgressLabel, winnerLabel, canFinalizeMatch, canAccessTab, pairIsLocked, individualIsLocked, rosterItemIsLocked, totalDisputedPoints, nextHoleIndex };`,
+globalThis.__RyderTest = { state, ensureStateShape, calculateMatch, calculateTotals, holesForMatch, teamName, canEditMatch, filteredMatches, isFinalized, matchResultLabel, matchProgressLabel, winnerLabel, canFinalizeMatch, canAccessTab, pairIsLocked, individualIsLocked, rosterItemIsLocked, totalDisputedPoints, nextHoleIndex, normalizeScoreValue };`,
     context,
     { filename: 'js/app.js' }
   );
@@ -153,6 +153,18 @@ for (let id = 1; id <= 14; id += 1) {
 
 for (let id = 1; id <= 28; id += 1) {
   assert.strictEqual(matches.find(match => match.id === `individual-${String(id).padStart(2, '0')}`).individualId, id);
+}
+
+{
+  const scoring = loadScoring(tournamentData);
+  assert.strictEqual(scoring.normalizeScoreValue('01'), '1');
+  assert.strictEqual(scoring.normalizeScoreValue('008'), '8');
+  assert.strictEqual(scoring.normalizeScoreValue('19'), '19');
+  assert.strictEqual(scoring.normalizeScoreValue(''), '');
+  assert.strictEqual(scoring.normalizeScoreValue('0'), '');
+  assert.strictEqual(scoring.normalizeScoreValue('20'), '');
+  assert.strictEqual(scoring.normalizeScoreValue('3.5'), '');
+  assert.strictEqual(scoring.normalizeScoreValue('abc'), '');
 }
 
 {

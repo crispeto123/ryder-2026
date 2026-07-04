@@ -5,6 +5,8 @@ const CLIENT_ID_KEY = 'ryder-2026-client-id';
 const CLIENT_SEQ_KEY = 'ryder-2026-client-seq';
 const HOLES = 9;
 const INDIVIDUAL_HOLES = 18;
+const MIN_SCORE = 1;
+const MAX_SCORE = 19;
 const DEFAULT_MATCH_POINTS = {
   Scramble: 1,
   'Golpe a Golpe': 1,
@@ -356,8 +358,16 @@ function canFinalizeMatch(match, calc = calculateMatch(match.id)) {
 }
 
 function scoreIsFilled(value) {
-  const score = Number(value);
-  return Number.isFinite(score) && score > 0;
+  return normalizeScoreValue(value) !== '';
+}
+
+function normalizeScoreValue(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  if (!/^\d+$/.test(raw)) return '';
+  const score = Number(raw);
+  if (!Number.isInteger(score) || score < MIN_SCORE || score > MAX_SCORE) return '';
+  return String(score);
 }
 
 function holeHasAnyScore(rows, index) {
@@ -1130,7 +1140,7 @@ function holeInput(match, team, index, nextIndex) {
     ? 'Sin confirmar en servidor'
     : pending ? 'Guardando en servidor'
       : index === nextIndex ? 'Proximo hoyo a llenar' : '';
-  return `<input class="hole-input${saveClass}" type="number" min="1" max="20" inputmode="numeric" value="${value}" data-match="${match.id}" data-team="${team}" data-hole="${index}" aria-label="${team} hoyo ${index + 1}" title="${saveTitle}" ${disabled}>`;
+  return `<input class="hole-input${saveClass}" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" value="${value}" data-match="${match.id}" data-team="${team}" data-hole="${index}" aria-label="${team} hoyo ${index + 1}" title="${saveTitle}" ${disabled}>`;
 }
 
 function holeHeaders(start, count = HOLES, extraClass = '', nextIndex = null) {
@@ -1366,14 +1376,16 @@ function onInput(event) {
   const { match, team, hole } = input.dataset;
   const matchItem = state.matches.find(item => item.id === match);
   if (!canWriteMatch(matchItem) || isFinalized(match)) return;
+  const normalizedValue = normalizeScoreValue(input.value);
+  if (input.value !== normalizedValue) input.value = normalizedValue;
   const hadAnyScore = matchHasAnyScore(matchItem);
-  if (!hadAnyScore && scoreIsFilled(input.value)) {
+  if (!hadAnyScore && scoreIsFilled(normalizedValue)) {
     state.matchStarts[match] = Number(hole);
   }
-  state.values[match][team][Number(hole)] = input.value;
+  state.values[match][team][Number(hole)] = normalizedValue;
   if (!matchHasAnyScore(matchItem)) delete state.matchStarts[match];
   saveState({ sync: false });
-  const mutation = createHoleMutation(match, team, Number(hole), input.value);
+  const mutation = createHoleMutation(match, team, Number(hole), normalizedValue);
   if (!canWriteOnline()) {
     enqueueHoleMutation(mutation);
     const key = holeSaveKey(match, team, Number(hole));
@@ -1381,7 +1393,7 @@ function onInput(event) {
       matchId: match,
       team,
       hole: Number(hole),
-      value: String(input.value ?? ''),
+      value: normalizedValue,
       mutationId: mutation.mutationId,
       clientSeq: mutation.clientSeq,
       status: 'queued'
@@ -1389,7 +1401,7 @@ function onInput(event) {
     renderAll();
     return;
   }
-  const sent = window.RyderSync?.setHole?.(match, team, Number(hole), input.value, currentUsername(), mutation);
+  const sent = window.RyderSync?.setHole?.(match, team, Number(hole), normalizedValue, currentUsername(), mutation);
   if (sent) {
     markHoleSavePending(mutation);
   } else {

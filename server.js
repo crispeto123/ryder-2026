@@ -7,6 +7,8 @@ const { DatabaseSync } = require('node:sqlite');
 const PORT = Number(process.env.PORT || 8767);
 const HOST = process.env.HOST || '0.0.0.0';
 const ROOT = __dirname;
+const MIN_SCORE = 1;
+const MAX_SCORE = 19;
 const STATE_FILE = process.env.DATA_DIR ? path.join(process.env.DATA_DIR, 'state.json') : path.join(ROOT, 'data', 'state.json');
 const DB_FILE = process.env.DATA_DIR ? path.join(process.env.DATA_DIR, 'ryder.sqlite') : path.join(ROOT, 'data', 'ryder.sqlite');
 const BACKUP_DIR = path.join(ROOT, 'backups');
@@ -696,8 +698,16 @@ function appState() {
 }
 
 function scoreIsFilled(value) {
-  const score = Number(value);
-  return Number.isFinite(score) && score > 0;
+  return normalizeScoreValue(value) !== '';
+}
+
+function normalizeScoreValue(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  if (!/^\d+$/.test(raw)) return null;
+  const score = Number(raw);
+  if (!Number.isInteger(score) || score < MIN_SCORE || score > MAX_SCORE) return null;
+  return String(score);
 }
 
 function rowsHaveAnyScore(rows = {}) {
@@ -851,7 +861,8 @@ function setHoleValue(message) {
   while (current.values[matchId].tigers.length <= hole) current.values[matchId].tigers.push('');
   while (current.values[matchId].firmas.length <= hole) current.values[matchId].firmas.push('');
   const previousValue = current.values[matchId][team][hole] ?? '';
-  const nextValue = message.value ?? '';
+  const nextValue = normalizeScoreValue(message.value);
+  if (nextValue === null) return false;
   current.values[matchId][team][hole] = nextValue;
   current.matchStarts = { ...(current.matchStarts || {}) };
   const matchStart = Number(message.matchStart);
