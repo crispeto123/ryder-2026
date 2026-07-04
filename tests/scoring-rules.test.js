@@ -34,7 +34,7 @@ function loadScoring({ matches, players, systemUsers, pairs, individuals }) {
 
   vm.runInNewContext(
     `${pureSource}
-globalThis.__RyderTest = { state, ensureStateShape, calculateMatch, calculateTotals, holesForMatch, teamName, canEditMatch, filteredMatches, isFinalized, matchResultLabel, matchProgressLabel, winnerLabel, canFinalizeMatch, canAccessTab, pairIsLocked, individualIsLocked, rosterItemIsLocked, totalDisputedPoints };`,
+globalThis.__RyderTest = { state, ensureStateShape, calculateMatch, calculateTotals, holesForMatch, teamName, canEditMatch, filteredMatches, isFinalized, matchResultLabel, matchProgressLabel, winnerLabel, canFinalizeMatch, canAccessTab, pairIsLocked, individualIsLocked, rosterItemIsLocked, totalDisputedPoints, nextHoleIndex };`,
     context,
     { filename: 'js/app.js' }
   );
@@ -191,6 +191,43 @@ for (let id = 1; id <= 28; id += 1) {
   assert.strictEqual(scoring.matchResultLabel(scoring.state.matches.find(match => match.id === 'scramble-01'), carouselPair), 'TIGERS 2UP');
   assert.strictEqual(scoring.matchProgressLabel(scoring.state.matches.find(match => match.id === 'scramble-01'), carouselPair), 'Hoyo 2');
   assert.strictEqual(scoring.canFinalizeMatch(scoring.state.matches.find(match => match.id === 'scramble-01'), carouselPair), false);
+}
+
+{
+  const scoring = loadScoring(tournamentData);
+  scoring.ensureStateShape();
+  const match = scoring.state.matches.find(item => item.id === 'scramble-01');
+  scoring.state.values['scramble-01'] = {
+    tigers: ['3', '', '', '', '', '', '3', '3', '3'],
+    firmas: ['4', '', '', '', '', '', '4', '4', '4']
+  };
+  const wrappedPair = scoring.calculateMatch('scramble-01');
+  assert.strictEqual(wrappedPair.played, 4);
+  assert.strictEqual(wrappedPair.difference, 4);
+  assert.strictEqual(scoring.nextHoleIndex(match), 1);
+
+  scoring.state.values['scramble-01'] = {
+    tigers: ['3', '3', '', '', '', '', '3', '3', '3'],
+    firmas: ['4', '4', '', '', '', '', '4', '4', '4']
+  };
+  const completedWrappedPair = scoring.calculateMatch('scramble-01');
+  assert.strictEqual(completedWrappedPair.played, 5);
+  assert.strictEqual(scoring.nextHoleIndex(match), 2);
+}
+
+{
+  const scoring = loadScoring(tournamentData);
+  scoring.ensureStateShape();
+  const match = scoring.state.matches.find(item => item.id === 'individual-28');
+  scoring.state.values['individual-28'] = {
+    tigers: ['4', '3', '4', '3', '', '', '', '4', '3', '3', '3', '5', '3', '3', '4', '3', '3', '3'],
+    firmas: ['5', '3', '3', '4', '', '', '', '3', '4', '5', '4', '3', '4', '5', '4', '3', '4', '2']
+  };
+  const gapIndividual = scoring.calculateMatch('individual-28');
+  assert.strictEqual(gapIndividual.played, 15);
+  assert.strictEqual(gapIndividual.difference, 4);
+  assert.strictEqual(scoring.nextHoleIndex(match), 4);
+  assert.strictEqual(scoring.matchProgressLabel(match, gapIndividual), 'FINALIZADO Gana Tigers');
 }
 
 {

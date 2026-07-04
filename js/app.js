@@ -23,6 +23,7 @@ const state = {
     cardsEditingEnabled: false,
     matchPoints: { ...DEFAULT_MATCH_POINTS }
   },
+  matchStarts: {},
   resultsFilter: 'Todas',
   resultsStatusFilter: 'Todos',
   cardsFilter: 'Todas',
@@ -192,6 +193,7 @@ function createHoleMutation(matchId, team, hole, value) {
     hole: Number(hole),
     value: String(value ?? ''),
     username: currentUsername(),
+    matchStart: state.matchStarts?.[matchId],
     createdAt: new Date().toISOString()
   };
 }
@@ -353,6 +355,63 @@ function canFinalizeMatch(match, calc = calculateMatch(match.id)) {
   return Boolean(calc.hasStarted && (calc.closed || calc.played >= holesForMatch(match)));
 }
 
+function scoreIsFilled(value) {
+  const score = Number(value);
+  return Number.isFinite(score) && score > 0;
+}
+
+function holeHasAnyScore(rows, index) {
+  return scoreIsFilled(rows?.tigers?.[index]) || scoreIsFilled(rows?.firmas?.[index]);
+}
+
+function holeIsComplete(rows, index) {
+  return scoreIsFilled(rows?.tigers?.[index]) && scoreIsFilled(rows?.firmas?.[index]);
+}
+
+function contiguousCountFrom(rows, holes, start, predicate) {
+  let count = 0;
+  for (let offset = 0; offset < holes; offset += 1) {
+    const index = (start + offset) % holes;
+    if (!predicate(rows, index)) break;
+    count += 1;
+  }
+  return count;
+}
+
+function inferredStartHoleIndex(match, rows) {
+  const holes = holesForMatch(match);
+  const candidates = Array.from({ length: holes }, (_, index) => index)
+    .filter(index => holeHasAnyScore(rows, index));
+  if (!candidates.length) return 0;
+  return candidates.reduce((best, candidate) => {
+    const candidateComplete = contiguousCountFrom(rows, holes, candidate, holeIsComplete);
+    const bestComplete = contiguousCountFrom(rows, holes, best, holeIsComplete);
+    if (candidateComplete !== bestComplete) return candidateComplete > bestComplete ? candidate : best;
+    const candidateAny = contiguousCountFrom(rows, holes, candidate, holeHasAnyScore);
+    const bestAny = contiguousCountFrom(rows, holes, best, holeHasAnyScore);
+    if (candidateAny !== bestAny) return candidateAny > bestAny ? candidate : best;
+    return candidate < best ? candidate : best;
+  }, candidates[0]);
+}
+
+function orderedHoleIndexes(match, rows = state.values[match.id] || emptyMatchValues(holesForMatch(match))) {
+  const holes = holesForMatch(match);
+  const savedStart = Number(state.matchStarts?.[match.id]);
+  const start = Number.isInteger(savedStart) && savedStart >= 0 && savedStart < holes
+    ? savedStart
+    : inferredStartHoleIndex(match, rows);
+  return Array.from({ length: holes }, (_, offset) => (start + offset) % holes);
+}
+
+function nextHoleIndex(match, rows = state.values[match.id] || emptyMatchValues(holesForMatch(match))) {
+  const order = orderedHoleIndexes(match, rows);
+  return order.find(index => !holeIsComplete(rows, index)) ?? null;
+}
+
+function matchHasAnyScore(match, rows = state.values[match.id] || emptyMatchValues(holesForMatch(match))) {
+  return orderedHoleIndexes(match, rows).some(index => holeHasAnyScore(rows, index));
+}
+
 function isLoggedIn() {
   return Boolean(activeUser());
 }
@@ -494,6 +553,7 @@ function stateSnapshot() {
     values: state.values,
     finalizations: state.finalizations,
     settings: state.settings,
+    matchStarts: state.matchStarts,
     players: state.players,
     systemUsers: state.systemUsers,
     pairs: state.pairs,
@@ -522,6 +582,7 @@ function applySnapshot(snapshot) {
     cardsEditingEnabled: toBoolean(snapshot.settings?.cardsEditingEnabled),
     matchPoints: { ...DEFAULT_MATCH_POINTS, ...(snapshot.settings?.matchPoints || {}) }
   };
+  state.matchStarts = snapshot.matchStarts && typeof snapshot.matchStarts === 'object' ? snapshot.matchStarts : {};
   if (Array.isArray(snapshot.players)) state.players = mergePlayers(snapshot.players);
   if (Array.isArray(snapshot.systemUsers)) state.systemUsers = snapshot.systemUsers;
   state.pairs = cleanRosterPlaceholders(Array.isArray(snapshot.pairs)
@@ -780,24 +841,23 @@ function calculateMatch(matchId) {
   let played = 0;
   let closed = null;
 
-  for (let i = 0; i < holes; i++) {
+  for (const i of orderedHoleIndexes(match, rows)) {
+    if (!holeIsComplete(rows, i)) break;
     const t = Number(rows.tigers[i]);
     const f = Number(rows.firmas[i]);
-    if (Number.isFinite(t) && Number.isFinite(f) && t > 0 && f > 0) {
-      played += 1;
-      if (t < f) difference += 1;
-      if (f < t) difference -= 1;
-      const remaining = holes - played;
-      if (Math.abs(difference) > remaining) {
-        closed = {
-          hole: i + 1,
-          played,
-          lead: Math.abs(difference),
-          remaining,
-          winner: difference > 0 ? 'Tigers' : 'Firmas'
-        };
-        break;
-      }
+    played += 1;
+    if (t < f) difference += 1;
+    if (f < t) difference -= 1;
+    const remaining = holes - played;
+    if (Math.abs(difference) > remaining) {
+      closed = {
+        hole: i + 1,
+        played,
+        lead: Math.abs(difference),
+        remaining,
+        winner: difference > 0 ? 'Tigers' : 'Firmas'
+      };
+      break;
     }
   }
 
@@ -1052,45 +1112,55 @@ function renderResultsTable() {
   }).join('');
 }
 
-function holeInput(match, team, index) {
+function holeInput(match, team, index, nextIndex) {
   const value = state.values[match.id][team][index] ?? '';
   const calc = calculateMatch(match.id);
   const closedRemaining = calc.closed && value === '';
-  const disabled = canWriteMatch(match) && !isFinalized(match.id) && !isFinalizationPending(match.id) && !closedRemaining ? '' : 'disabled';
+  const rows = state.values[match.id] || emptyMatchValues(holesForMatch(match));
+  const canStartAnywhere = !matchHasAnyScore(match, rows);
+  const isAllowedByOrder = canStartAnywhere || holeHasAnyScore(rows, index) || index === nextIndex;
+  const disabled = canWriteMatch(match) && !isFinalized(match.id) && !isFinalizationPending(match.id) && !closedRemaining && isAllowedByOrder ? '' : 'disabled';
   const pending = pendingHoleSaves.get(holeSaveKey(match.id, team, index));
-  const saveClass = pending ? ` save-${pending.status}` : '';
+  const saveClass = `${pending ? ` save-${pending.status}` : ''}${index === nextIndex ? ' next-hole-input' : ''}`;
   const saveTitle = pending?.status === 'failed'
     ? 'Sin confirmar en servidor'
-    : pending ? 'Guardando en servidor' : '';
+    : pending ? 'Guardando en servidor'
+      : index === nextIndex ? 'Proximo hoyo a llenar' : '';
   return `<input class="hole-input${saveClass}" type="number" min="1" max="20" inputmode="numeric" value="${value}" data-match="${match.id}" data-team="${team}" data-hole="${index}" aria-label="${team} hoyo ${index + 1}" title="${saveTitle}" ${disabled}>`;
 }
 
-function holeHeaders(start, count = HOLES, extraClass = '') {
-  return Array.from({ length: count }, (_, i) => `<div class="grid-hole ${extraClass}">H${start + i}</div>`).join('');
+function holeHeaders(start, count = HOLES, extraClass = '', nextIndex = null) {
+  return Array.from({ length: count }, (_, i) => {
+    const index = start + i - 1;
+    const isNext = index === nextIndex;
+    return `<div class="grid-hole ${extraClass} ${isNext ? 'next-hole' : ''}">${isNext ? '<span class="next-hole-arrow" aria-hidden="true"></span>' : ''}H${start + i}</div>`;
+  }).join('');
 }
 
-function holeInputs(match, team, start, count = HOLES) {
-  return Array.from({ length: count }, (_, i) => holeInput(match, team, start + i - 1)).join('');
+function holeInputs(match, team, start, count = HOLES, nextIndex = null) {
+  return Array.from({ length: count }, (_, i) => holeInput(match, team, start + i - 1, nextIndex)).join('');
 }
 
 function scorecardGrid(match, calc) {
+  const rows = state.values[match.id] || emptyMatchValues(holesForMatch(match));
+  const nextIndex = calc.closed ? null : nextHoleIndex(match, rows);
   const firstNine = `
     <div class="grid-label">Equipo</div>
-    ${holeHeaders(1)}
+    ${holeHeaders(1, HOLES, '', nextIndex)}
     <div class="player-name tigers-name">${escapeHtml(teamName(match, 'tigers'))}</div>
-    ${holeInputs(match, 'tigers', 1)}
+    ${holeInputs(match, 'tigers', 1, HOLES, nextIndex)}
     <div class="player-name firmas-name">${escapeHtml(teamName(match, 'firmas'))}</div>
-    ${holeInputs(match, 'firmas', 1)}`;
+    ${holeInputs(match, 'firmas', 1, HOLES, nextIndex)}`;
 
   if (holesForMatch(match) === HOLES) return firstNine;
 
   return `${firstNine}
     <div class="grid-label second-nine">Equipo</div>
-    ${holeHeaders(10, HOLES, 'second-nine')}
+    ${holeHeaders(10, HOLES, 'second-nine', nextIndex)}
     <div class="player-name tigers-name">${escapeHtml(teamName(match, 'tigers'))}</div>
-    ${holeInputs(match, 'tigers', 10)}
+    ${holeInputs(match, 'tigers', 10, HOLES, nextIndex)}
     <div class="player-name firmas-name">${escapeHtml(teamName(match, 'firmas'))}</div>
-    ${holeInputs(match, 'firmas', 10)}`;
+    ${holeInputs(match, 'firmas', 10, HOLES, nextIndex)}`;
 }
 
 function renderCards() {
@@ -1124,15 +1194,15 @@ function renderCards() {
       node.querySelector('h3').textContent = matchNumber;
       const saveStatus = matchSaveStatus(match.id);
       const primaryAction = isFinalized(match.id)
-        ? `${canEditMatch(match) ? `<button class="btn secondary card-download card-action" type="button" data-card-action="download" data-match="${match.id}">Descargar Tarjeta</button>` : ''}
-          <button class="btn secondary card-action" type="button" data-card-action="unlock" data-match="${match.id}">Abrir tarjeta</button>`
+        ? `${canEditMatch(match) ? `<button class="btn secondary card-download card-action" type="button" data-card-action="download" data-match="${match.id}">${downloadIcon()}<span>Descargar</span></button>` : ''}
+          <button class="btn secondary card-action" type="button" data-card-action="unlock" data-match="${match.id}">${openIcon()}<span>Abrir</span></button>`
         : isFinalizationPending(match.id)
           ? '<button class="btn secondary card-action" type="button" disabled>Finalizando...</button>'
         : canWriteMatch(match) && canFinalizeMatch(match, calc)
           ? `<button class="btn card-action" type="button" data-card-action="finalize" data-match="${match.id}">Finalizar</button>`
           : '';
       const resetAction = isAdminUser()
-        ? `<button class="btn danger card-action" type="button" data-card-action="reset-card" data-match="${match.id}">Reiniciar tarjeta</button>`
+        ? `<button class="btn danger card-action" type="button" data-card-action="reset-card" data-match="${match.id}">Reiniciar</button>`
         : '';
       const actions = `${primaryAction}${resetAction}`;
       node.querySelector('.match-status').innerHTML = `
@@ -1214,6 +1284,14 @@ function trashIcon() {
   return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6l1 15h10l1-15"/><path d="M10 10v7"/><path d="M14 10v7"/></svg>';
 }
 
+function downloadIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>';
+}
+
+function openIcon() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 11V8a5 5 0 0 1 9.6-2"/><rect x="5" y="11" width="14" height="10" rx="2"/></svg>';
+}
+
 function playerMatchesSearch(player) {
   const query = normalizeSearch(state.playersSearch);
   if (!query) return true;
@@ -1284,7 +1362,12 @@ function onInput(event) {
   const { match, team, hole } = input.dataset;
   const matchItem = state.matches.find(item => item.id === match);
   if (!canWriteMatch(matchItem) || isFinalized(match)) return;
+  const hadAnyScore = matchHasAnyScore(matchItem);
+  if (!hadAnyScore && scoreIsFilled(input.value)) {
+    state.matchStarts[match] = Number(hole);
+  }
   state.values[match][team][Number(hole)] = input.value;
+  if (!matchHasAnyScore(matchItem)) delete state.matchStarts[match];
   saveState({ sync: false });
   const mutation = createHoleMutation(match, team, Number(hole), input.value);
   if (!canWriteOnline()) {
@@ -1529,6 +1612,7 @@ function resetSingleMatch(matchId) {
   clearPendingFinalization(match.id);
   state.values[match.id] = emptyMatchValues(holesForMatch(match));
   delete state.finalizations[match.id];
+  delete state.matchStarts[match.id];
   saveState({ sync: false });
   if (!window.RyderSync?.resetMatch?.(match.id, currentUsername())) {
     window.RyderSync?.save?.(stateSnapshot(), currentUsername());
@@ -1977,6 +2061,7 @@ function resetAll() {
   }
   state.values = {};
   state.finalizations = {};
+  state.matchStarts = {};
   ensureStateShape();
   saveState({ sync: false });
   window.RyderSync?.reset(currentUsername());

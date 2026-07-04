@@ -428,6 +428,16 @@ function loadSettingsFromDb() {
   return settings;
 }
 
+function loadMatchStartsFromDb() {
+  const row = db.prepare("SELECT value FROM settings WHERE key = 'matchStarts'").get();
+  try {
+    const starts = JSON.parse(row?.value || '{}');
+    return starts && typeof starts === 'object' && !Array.isArray(starts) ? starts : {};
+  } catch {
+    return {};
+  }
+}
+
 function composeStateFromDb() {
   const players = loadPlayersFromDb();
   const systemUsers = loadSystemUsersFromDb();
@@ -437,6 +447,7 @@ function composeStateFromDb() {
       values: composeScoresFromDb(),
       finalizations: composeFinalizationsFromDb(),
       settings: loadSettingsFromDb(),
+      matchStarts: loadMatchStartsFromDb(),
       players,
       systemUsers,
       pairs: composePairsFromDb(byId),
@@ -538,6 +549,9 @@ function syncRelationalTables(state) {
   const scores = values.values || {};
   const finalizations = values.finalizations || {};
   const settings = { ...loadSettingsFromDb(), ...(values.settings || {}) };
+  const matchStarts = values.matchStarts && typeof values.matchStarts === 'object' && !Array.isArray(values.matchStarts)
+    ? values.matchStarts
+    : loadMatchStartsFromDb();
   const now = new Date().toISOString();
   const insertPlayer = db.prepare(`
     INSERT INTO players (id, team, name, username, password, is_admin)
@@ -584,6 +598,7 @@ function syncRelationalTables(state) {
   `);
   insertSetting.run('cardsEditingEnabled', settings.cardsEditingEnabled ? 'true' : 'false', now);
   insertSetting.run('matchPoints', JSON.stringify({ ...DEFAULT_MATCH_POINTS, ...(settings.matchPoints || {}) }), now);
+  insertSetting.run('matchStarts', JSON.stringify(matchStarts), now);
   players.forEach(player => {
     insertPlayer.run(
       Number(player.id),
@@ -680,6 +695,17 @@ function appState() {
   return sharedState.values || {};
 }
 
+function scoreIsFilled(value) {
+  const score = Number(value);
+  return Number.isFinite(score) && score > 0;
+}
+
+function rowsHaveAnyScore(rows = {}) {
+  return ['tigers', 'firmas'].some(team =>
+    Array.isArray(rows[team]) && rows[team].some(scoreIsFilled)
+  );
+}
+
 function isFinalizedRecord(record) {
   return Boolean(record?.finalized);
 }
@@ -746,6 +772,9 @@ function mergeIncomingState(incoming, options = {}) {
   const currentFinalizations = current.finalizations || {};
   const incomingFinalizations = next.finalizations || {};
   next.finalizations = { ...incomingFinalizations };
+  next.matchStarts = incoming?.matchStarts && typeof incoming.matchStarts === 'object' && !Array.isArray(incoming.matchStarts)
+    ? incoming.matchStarts
+    : current.matchStarts || {};
   mergeRosterState(current, next, incoming || {}, options);
 
   Object.entries(currentFinalizations).forEach(([matchId, record]) => {
@@ -822,6 +851,12 @@ function setHoleValue(message) {
   const previousValue = current.values[matchId][team][hole] ?? '';
   const nextValue = message.value ?? '';
   current.values[matchId][team][hole] = nextValue;
+  current.matchStarts = { ...(current.matchStarts || {}) };
+  const matchStart = Number(message.matchStart);
+  if (Number.isInteger(matchStart) && matchStart >= 0 && matchStart < match.holes && current.matchStarts[matchId] === undefined) {
+    current.matchStarts[matchId] = matchStart;
+  }
+  if (!rowsHaveAnyScore(current.values[matchId])) delete current.matchStarts[matchId];
   sharedState = { values: current };
   const change = {
     matchId,
@@ -1909,8 +1944,10 @@ function handleMessage(socket, raw) {
     const previousFinalization = current.finalizations?.[matchId];
     current.values = { ...(current.values || {}) };
     current.finalizations = { ...(current.finalizations || {}) };
+    current.matchStarts = { ...(current.matchStarts || {}) };
     delete current.values[matchId];
     delete current.finalizations[matchId];
+    delete current.matchStarts[matchId];
     sharedState = { values: current };
     saveSharedState();
     audit('reset-match', {
@@ -1940,6 +1977,7 @@ function handleMessage(socket, raw) {
         pairs: current.pairs || emptyPairs(),
         individuals: current.individuals || emptyIndividuals(),
         settings: current.settings || loadSettingsFromDb(),
+        matchStarts: {},
         values: {},
         finalizations: {}
       }
