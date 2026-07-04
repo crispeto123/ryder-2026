@@ -87,11 +87,11 @@ function tournamentMatches() {
 }
 
 function emptyPairs() {
-  return defaultPairs().map(pair => ({ id: pair.id, tigers: '', firmas: '' }));
+  return defaultPairs().map(pair => ({ id: pair.id, tigers: '', firmas: '', startHole: '' }));
 }
 
 function emptyIndividuals() {
-  return defaultIndividuals().map(individual => ({ id: individual.id, tigers: '', firmas: '' }));
+  return defaultIndividuals().map(individual => ({ id: individual.id, tigers: '', firmas: '', startHole: '' }));
 }
 
 function openDatabase() {
@@ -130,6 +130,7 @@ function openDatabase() {
       tigers_player_2_id INTEGER,
       firmas_player_1_id INTEGER,
       firmas_player_2_id INTEGER,
+      start_hole INTEGER,
       updated_at TEXT NOT NULL,
       FOREIGN KEY (tigers_player_1_id) REFERENCES players(id),
       FOREIGN KEY (tigers_player_2_id) REFERENCES players(id),
@@ -140,6 +141,7 @@ function openDatabase() {
       id INTEGER PRIMARY KEY,
       tigers_player_id INTEGER,
       firmas_player_id INTEGER,
+      start_hole INTEGER,
       updated_at TEXT NOT NULL,
       FOREIGN KEY (tigers_player_id) REFERENCES players(id),
       FOREIGN KEY (firmas_player_id) REFERENCES players(id)
@@ -201,6 +203,8 @@ function openDatabase() {
   ensureColumn(database, 'hole_scores', 'client_id', 'TEXT');
   ensureColumn(database, 'hole_scores', 'client_seq', 'INTEGER NOT NULL DEFAULT 0');
   ensureColumn(database, 'hole_scores', 'mutation_id', 'TEXT');
+  ensureColumn(database, 'pairs', 'start_hole', 'INTEGER');
+  ensureColumn(database, 'individuals', 'start_hole', 'INTEGER');
   seedMatches(database);
   return database;
 }
@@ -358,7 +362,8 @@ function composePairsFromDb(playersById) {
     return {
       id: item.id,
       tigers: tigers || '',
-      firmas: firmas || ''
+      firmas: firmas || '',
+      startHole: normalizeStartHole(row.start_hole, 9) || ''
     };
   });
 }
@@ -373,7 +378,8 @@ function composeIndividualsFromDb(playersById) {
     return {
       id: item.id,
       tigers: playerLabel(playersById.get(Number(row.tigers_player_id))) || '',
-      firmas: playerLabel(playersById.get(Number(row.firmas_player_id))) || ''
+      firmas: playerLabel(playersById.get(Number(row.firmas_player_id))) || '',
+      startHole: normalizeStartHole(row.start_hole, 18) || ''
     };
   });
 }
@@ -564,12 +570,12 @@ function syncRelationalTables(state) {
     VALUES (?, ?, ?, ?, ?)
   `);
   const insertPair = db.prepare(`
-    INSERT INTO pairs (id, tigers_player_1_id, tigers_player_2_id, firmas_player_1_id, firmas_player_2_id, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO pairs (id, tigers_player_1_id, tigers_player_2_id, firmas_player_1_id, firmas_player_2_id, start_hole, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
   `);
   const insertIndividual = db.prepare(`
-    INSERT INTO individuals (id, tigers_player_id, firmas_player_id, updated_at)
-    VALUES (?, ?, ?, ?)
+    INSERT INTO individuals (id, tigers_player_id, firmas_player_id, start_hole, updated_at)
+    VALUES (?, ?, ?, ?, ?)
   `);
   const insertScore = db.prepare(`
     INSERT INTO hole_scores (match_id, team, hole_index, value, updated_at)
@@ -625,14 +631,16 @@ function syncRelationalTables(state) {
   pairs.forEach(pair => {
     const tigers = playerIdsForSelection(byNameAndTeam, 'Tigers', pair.tigers, 2);
     const firmas = playerIdsForSelection(byNameAndTeam, 'Firmas', pair.firmas, 2);
-    if (![...tigers, ...firmas].some(Boolean)) return;
-    insertPair.run(Number(pair.id), tigers[0], tigers[1], firmas[0], firmas[1], now);
+    const startHole = normalizeStartHole(pair.startHole, 9);
+    if (![...tigers, ...firmas].some(Boolean) && !startHole) return;
+    insertPair.run(Number(pair.id), tigers[0], tigers[1], firmas[0], firmas[1], startHole, now);
   });
   individuals.forEach(individual => {
     const [tigers] = playerIdsForSelection(byNameAndTeam, 'Tigers', individual.tigers, 1);
     const [firmas] = playerIdsForSelection(byNameAndTeam, 'Firmas', individual.firmas, 1);
-    if (!tigers && !firmas) return;
-    insertIndividual.run(Number(individual.id), tigers, firmas, now);
+    const startHole = normalizeStartHole(individual.startHole, 18);
+    if (!tigers && !firmas && !startHole) return;
+    insertIndividual.run(Number(individual.id), tigers, firmas, startHole, now);
   });
 
   tournamentMatches().forEach(match => {
@@ -710,6 +718,11 @@ function normalizeScoreValue(value) {
   return String(score);
 }
 
+function normalizeStartHole(value, holes) {
+  const hole = Number(value);
+  return Number.isInteger(hole) && hole >= 1 && hole <= holes ? hole : null;
+}
+
 function rowsHaveAnyScore(rows = {}) {
   return ['tigers', 'firmas'].some(team =>
     Array.isArray(rows[team]) && rows[team].some(scoreIsFilled)
@@ -735,16 +748,16 @@ function shouldUseIncomingRoster(current, incoming, options = {}) {
   return true;
 }
 
-function rosterHasNames(item) {
-  return !isPlaceholder(item?.tigers) || !isPlaceholder(item?.firmas);
+function rosterHasNames(item, holes = 18) {
+  return !isPlaceholder(item?.tigers) || !isPlaceholder(item?.firmas) || Boolean(normalizeStartHole(item?.startHole, holes));
 }
 
-function mergeRosterCollection(currentItems = [], incomingItems = [], allowClear = false) {
+function mergeRosterCollection(currentItems = [], incomingItems = [], allowClear = false, holes = 18) {
   const incomingById = new Map(incomingItems.map(item => [Number(item.id), item]));
   return currentItems.map(currentItem => {
     const incomingItem = incomingById.get(Number(currentItem.id));
     if (!incomingItem) return currentItem;
-    if (!allowClear && rosterHasNames(currentItem) && !rosterHasNames(incomingItem)) return currentItem;
+    if (!allowClear && rosterHasNames(currentItem, holes) && !rosterHasNames(incomingItem, holes)) return currentItem;
     return incomingItem;
   });
 }
@@ -754,10 +767,10 @@ function mergeRosterState(current, next, incoming, options = {}) {
     next.players = incoming.players;
     if (Array.isArray(incoming.systemUsers)) next.systemUsers = incoming.systemUsers;
     if (Array.isArray(incoming.pairs)) {
-      next.pairs = mergeRosterCollection(current.pairs || defaultPairs(), incoming.pairs, options.allowRosterClear === 'pairs');
+      next.pairs = mergeRosterCollection(current.pairs || defaultPairs(), incoming.pairs, options.allowRosterClear === 'pairs', 9);
     }
     if (Array.isArray(incoming.individuals)) {
-      next.individuals = mergeRosterCollection(current.individuals || defaultIndividuals(), incoming.individuals, options.allowRosterClear === 'individuals');
+      next.individuals = mergeRosterCollection(current.individuals || defaultIndividuals(), incoming.individuals, options.allowRosterClear === 'individuals', 18);
     }
     return;
   }

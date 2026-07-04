@@ -406,8 +406,11 @@ function inferredStartHoleIndex(match, rows) {
 
 function orderedHoleIndexes(match, rows = state.values[match.id] || emptyMatchValues(holesForMatch(match))) {
   const holes = holesForMatch(match);
+  const configuredStart = startHoleForMatch(match);
   const savedStart = Number(state.matchStarts?.[match.id]);
-  const start = Number.isInteger(savedStart) && savedStart >= 0 && savedStart < holes
+  const start = configuredStart
+    ? configuredStart - 1
+    : Number.isInteger(savedStart) && savedStart >= 0 && savedStart < holes
     ? savedStart
     : inferredStartHoleIndex(match, rows);
   return Array.from({ length: holes }, (_, offset) => (start + offset) % holes);
@@ -530,6 +533,16 @@ function holesForMatch(match) {
   return match?.type === 'Individual' ? INDIVIDUAL_HOLES : HOLES;
 }
 
+function normalizeStartHole(value, holes) {
+  const hole = Number(value);
+  return Number.isInteger(hole) && hole >= 1 && hole <= holes ? hole : '';
+}
+
+function startHoleForMatch(match) {
+  const participant = participantForMatch(match);
+  return normalizeStartHole(participant?.startHole, holesForMatch(match));
+}
+
 function matchPointSettings() {
   return { ...DEFAULT_MATCH_POINTS, ...(state.settings?.matchPoints || {}) };
 }
@@ -580,11 +593,12 @@ function isRosterPlaceholder(value) {
   return text.includes('pareja #') || text.includes('jugador tigers #') || text.includes('jugador firmas #');
 }
 
-function cleanRosterPlaceholders(items = []) {
+function cleanRosterPlaceholders(items = [], holes = HOLES) {
   return items.map(item => ({
     ...item,
     tigers: isRosterPlaceholder(item.tigers) ? '' : item.tigers,
-    firmas: isRosterPlaceholder(item.firmas) ? '' : item.firmas
+    firmas: isRosterPlaceholder(item.firmas) ? '' : item.firmas,
+    startHole: normalizeStartHole(item.startHole, holes)
   }));
 }
 
@@ -601,10 +615,10 @@ function applySnapshot(snapshot) {
   if (Array.isArray(snapshot.systemUsers)) state.systemUsers = snapshot.systemUsers;
   state.pairs = cleanRosterPlaceholders(Array.isArray(snapshot.pairs)
     ? snapshot.pairs
-    : structuredClone(window.RYDER_PAIRS || []));
+    : structuredClone(window.RYDER_PAIRS || []), HOLES);
   state.individuals = cleanRosterPlaceholders(Array.isArray(snapshot.individuals)
     ? snapshot.individuals
-    : structuredClone(window.RYDER_INDIVIDUALS || []));
+    : structuredClone(window.RYDER_INDIVIDUALS || []), INDIVIDUAL_HOLES);
 }
 
 function loadState() {
@@ -1131,13 +1145,15 @@ function holeInput(match, team, index, nextIndex) {
   const calc = calculateMatch(match.id);
   const closedRemaining = calc.closed && value === '';
   const rows = state.values[match.id] || emptyMatchValues(holesForMatch(match));
-  const canStartAnywhere = !matchHasAnyScore(match, rows);
+  const hasConfiguredStart = Boolean(startHoleForMatch(match));
+  const canStartAnywhere = !matchHasAnyScore(match, rows) && hasConfiguredStart;
   const isAllowedByOrder = canStartAnywhere || holeHasAnyScore(rows, index) || index === nextIndex;
   const disabled = canWriteMatch(match) && !isFinalized(match.id) && !isFinalizationPending(match.id) && !closedRemaining && isAllowedByOrder ? '' : 'disabled';
   const pending = pendingHoleSaves.get(holeSaveKey(match.id, team, index));
   const saveClass = `${pending ? ` save-${pending.status}` : ''}${index === nextIndex ? ' next-hole-input' : ''}`;
   const saveTitle = pending?.status === 'failed'
     ? 'Sin confirmar en servidor'
+    : !hasConfiguredStart && !matchHasAnyScore(match, rows) ? 'Configura el hoyo de salida'
     : pending ? 'Guardando en servidor'
       : index === nextIndex ? 'Proximo hoyo a llenar' : '';
   return `<input class="hole-input${saveClass}" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" value="${value}" data-match="${match.id}" data-team="${team}" data-hole="${index}" aria-label="${team} hoyo ${index + 1}" title="${saveTitle}" ${disabled}>`;
@@ -1230,6 +1246,12 @@ function renderCards() {
       `;
 
       const grid = node.querySelector('.match-grid');
+      if (!startHoleForMatch(match) && !matchHasAnyScore(match)) {
+        const notice = document.createElement('div');
+        notice.className = 'match-defined-notice';
+        notice.innerHTML = '<strong>Configura el hoyo de salida</strong><span>Esta tarjeta se habilita cuando tenga hoyo de salida en Equipos.</span>';
+        card.insertBefore(notice, grid);
+      }
       if (canFinalizeMatch(match, calc) && !isFinalized(match.id)) {
         const notice = document.createElement('div');
         notice.className = 'match-defined-notice';
@@ -1266,6 +1288,19 @@ function rosterInput(item, group, team) {
     : '';
   const lockLabel = locked ? ' title="Bloqueado por tarjeta iniciada o finalizada"' : '';
   return `<div class="roster-field ${isValid ? '' : 'invalid'} ${locked ? 'locked' : ''}" data-roster="${group}" data-id="${item.id}" data-team="${team}" aria-invalid="${!isValid}"${lockLabel}>${chips}${input}</div>`;
+}
+
+function startHoleInput(item, group) {
+  const holes = group === 'individuals' ? INDIVIDUAL_HOLES : HOLES;
+  const value = normalizeStartHole(item.startHole, holes);
+  const locked = rosterItemIsLocked(group, item.id);
+  const options = ['<option value="">-</option>'].concat(
+    Array.from({ length: holes }, (_, index) => {
+      const hole = index + 1;
+      return `<option value="${hole}" ${value === hole ? 'selected' : ''}>H${hole}</option>`;
+    })
+  ).join('');
+  return `<select class="player-input start-hole-input" data-start-hole="${group}" data-id="${item.id}" aria-label="Hoyo salida ${group} ${item.id}" ${locked ? 'disabled title="Bloqueado por tarjeta iniciada o finalizada"' : ''}>${options}</select>`;
 }
 
 function playerInput(player, field) {
@@ -1342,6 +1377,7 @@ function renderRoster() {
     pairsBody.innerHTML = state.pairs.map(pair => `
       <tr>
         <td><strong>${pair.id}</strong></td>
+        <td>${startHoleInput(pair, 'pairs')}</td>
         <td>${rosterInput(pair, 'pairs', 'tigers')}</td>
         <td>${rosterInput(pair, 'pairs', 'firmas')}</td>
       </tr>
@@ -1351,6 +1387,7 @@ function renderRoster() {
     individualsBody.innerHTML = state.individuals.map(individual => `
       <tr>
         <td><strong>${individual.id}</strong></td>
+        <td>${startHoleInput(individual, 'individuals')}</td>
         <td>${rosterInput(individual, 'individuals', 'tigers')}</td>
         <td>${rosterInput(individual, 'individuals', 'firmas')}</td>
       </tr>
@@ -1705,6 +1742,32 @@ function onRosterInput(event) {
   openPlayerPicker(input);
 }
 
+function onStartHoleChange(event) {
+  const input = event.target.closest('[data-start-hole]');
+  if (!input) return;
+  const group = input.dataset.startHole;
+  const id = input.dataset.id;
+  if (!canWriteOnline()) {
+    warnOfflineWrite();
+    renderRoster();
+    return;
+  }
+  if (rosterItemIsLocked(group, id)) {
+    alert('Esta composicion ya tiene tarjetas iniciadas o finalizadas y no se puede modificar.');
+    renderRoster();
+    return;
+  }
+  const holes = group === 'individuals' ? INDIVIDUAL_HOLES : HOLES;
+  const collection = group === 'individuals' ? state.individuals : state.pairs;
+  const item = collection.find(entry => String(entry.id) === String(id));
+  if (!item) return;
+  item.startHole = normalizeStartHole(input.value, holes);
+  saveState();
+  renderResultsTable();
+  renderCards();
+  renderRoster();
+}
+
 function positionPicker(input, picker) {
   const rect = input.getBoundingClientRect();
   picker.style.left = `${rect.left + window.scrollX}px`;
@@ -1936,7 +1999,7 @@ function rosterItemIsLocked(roster, id) {
 }
 
 function rosterItemHasNames(item) {
-  return Boolean(String(item.tigers || '').trim() || String(item.firmas || '').trim());
+  return Boolean(String(item.tigers || '').trim() || String(item.firmas || '').trim() || item.startHole);
 }
 
 function resetUnlockedRosterItems(label, items, isLocked) {
@@ -1954,6 +2017,7 @@ function resetUnlockedRosterItems(label, items, isLocked) {
   cleanable.forEach(item => {
     item.tigers = '';
     item.firmas = '';
+    item.startHole = '';
   });
   return true;
 }
@@ -2129,6 +2193,7 @@ function bindEvents() {
   document.addEventListener('input', onRosterInput);
   document.addEventListener('input', onPlayerInput);
   document.addEventListener('change', onPlayerInput);
+  document.addEventListener('change', onStartHoleChange);
   document.addEventListener('click', togglePlayerPassword);
   document.addEventListener('change', toggleCardsEditing);
   document.addEventListener('change', updateMatchPointSetting);

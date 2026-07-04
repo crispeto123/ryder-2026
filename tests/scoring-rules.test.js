@@ -209,6 +209,8 @@ for (let id = 1; id <= 28; id += 1) {
   const scoring = loadScoring(tournamentData);
   scoring.ensureStateShape();
   const match = scoring.state.matches.find(item => item.id === 'scramble-01');
+  scoring.state.pairs[0].startHole = 7;
+  assert.strictEqual(scoring.nextHoleIndex(match), 6);
   scoring.state.values['scramble-01'] = {
     tigers: ['3', '', '', '', '', '', '3', '3', '3'],
     firmas: ['4', '', '', '', '', '', '4', '4', '4']
@@ -231,6 +233,7 @@ for (let id = 1; id <= 28; id += 1) {
   const scoring = loadScoring(tournamentData);
   scoring.ensureStateShape();
   const match = scoring.state.matches.find(item => item.id === 'individual-28');
+  scoring.state.individuals[27].startHole = 8;
   scoring.state.values['individual-28'] = {
     tigers: ['4', '3', '4', '3', '', '', '', '4', '3', '3', '3', '5', '3', '3', '4', '3', '3', '3'],
     firmas: ['5', '3', '3', '4', '', '', '', '3', '4', '5', '4', '3', '4', '5', '4', '3', '4', '2']
