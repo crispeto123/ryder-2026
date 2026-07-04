@@ -497,8 +497,12 @@ function renderMatchPointSettings() {
 }
 
 function mergePlayers(savedPlayers = []) {
-  const byId = new Map(structuredClone(window.RYDER_PLAYERS || []).map(player => [String(player.id), player]));
-  savedPlayers.forEach(player => {
+  const hasSavedPlayers = Array.isArray(savedPlayers);
+  const sourcePlayers = hasSavedPlayers ? savedPlayers : [];
+  const byId = new Map(hasSavedPlayers
+    ? sourcePlayers.map(player => [String(player.id), player])
+    : structuredClone(window.RYDER_PLAYERS || []).map(player => [String(player.id), player]));
+  sourcePlayers.forEach(player => {
     const base = byId.get(String(player.id)) || {};
     byId.set(String(player.id), { ...base, ...player });
   });
@@ -621,7 +625,7 @@ function clearSession() {
 
 function saveState(options = {}) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(stateSnapshot()));
-  if (!applyingRemoteState && options.sync !== false) window.RyderSync?.save(stateSnapshot(), currentUsername());
+  if (!applyingRemoteState && options.sync !== false) window.RyderSync?.save(stateSnapshot(), currentUsername(), options.meta || {});
 }
 
 function flushPlayerSave() {
@@ -1828,7 +1832,7 @@ function deletePlayer(event) {
     clearSession();
     applyAccessControl();
   }
-  saveState();
+  saveState({ meta: { allowPlayerDelete: true, deletedPlayerId: player.id } });
   renderTeamOptions();
   renderResultsTable();
   renderCards();

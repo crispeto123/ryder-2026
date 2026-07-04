@@ -716,9 +716,10 @@ function finalizationLabel(record) {
   return `${by}${at}`.trim();
 }
 
-function shouldUseIncomingRoster(current, incoming) {
+function shouldUseIncomingRoster(current, incoming, options = {}) {
   const currentPlayers = Array.isArray(current.players) ? current.players.length : 0;
   const incomingPlayers = Array.isArray(incoming.players) ? incoming.players.length : 0;
+  if (options.allowPlayerDelete && incomingPlayers < currentPlayers) return true;
   if (incomingPlayers < 10) return false;
   return incomingPlayers >= currentPlayers;
 }
@@ -738,7 +739,7 @@ function mergeRosterCollection(currentItems = [], incomingItems = [], allowClear
 }
 
 function mergeRosterState(current, next, incoming, options = {}) {
-  if (shouldUseIncomingRoster(current, incoming)) {
+  if (shouldUseIncomingRoster(current, incoming, options)) {
     next.players = incoming.players;
     if (Array.isArray(incoming.systemUsers)) next.systemUsers = incoming.systemUsers;
     if (Array.isArray(incoming.pairs)) {
@@ -1763,17 +1764,24 @@ function handleMessage(socket, raw) {
 
   if (message.type === 'set-state') {
     const incomingValues = { ...(message.values || {}) };
+    const username = messageUsername(message);
+    const allowPlayerDelete = Boolean(message.allowPlayerDelete && userIsAdmin(username));
     if (incomingValues.settings && !userIsAdmin(messageUsername(message))) {
       incomingValues.settings = appState().settings || loadSettingsFromDb();
     }
-    mergeIncomingState(incomingValues, { allowRosterClear: message.allowRosterClear || '' });
+    mergeIncomingState(incomingValues, {
+      allowRosterClear: message.allowRosterClear || '',
+      allowPlayerDelete
+    });
     saveSharedState();
     audit('set-state', {
       players: Array.isArray(incomingValues.players) ? incomingValues.players.length : 0,
       pairs: Array.isArray(incomingValues.pairs) ? incomingValues.pairs.filter(item => item.tigers || item.firmas).length : 0,
       individuals: Array.isArray(incomingValues.individuals) ? incomingValues.individuals.filter(item => item.tigers || item.firmas).length : 0,
-      cardsEditingEnabled: Boolean(incomingValues.settings?.cardsEditingEnabled)
-    }, null, messageUsername(message));
+      cardsEditingEnabled: Boolean(incomingValues.settings?.cardsEditingEnabled),
+      allowPlayerDelete,
+      deletedPlayerId: message.deletedPlayerId || null
+    }, null, username);
     broadcast({ type: 'state', values: sharedState.values });
     return;
   }
