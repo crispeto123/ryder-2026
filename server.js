@@ -718,10 +718,11 @@ function finalizationLabel(record) {
 
 function shouldUseIncomingRoster(current, incoming, options = {}) {
   const currentPlayers = Array.isArray(current.players) ? current.players.length : 0;
-  const incomingPlayers = Array.isArray(incoming.players) ? incoming.players.length : 0;
+  if (!Array.isArray(incoming.players)) return false;
+  const incomingPlayers = incoming.players.length;
   if (options.allowPlayerDelete && incomingPlayers < currentPlayers) return true;
-  if (incomingPlayers < 10) return false;
-  return incomingPlayers >= currentPlayers;
+  if (incomingPlayers < currentPlayers) return false;
+  return true;
 }
 
 function rosterHasNames(item) {

@@ -419,6 +419,20 @@ for (let id = 1; id <= 28; id += 1) {
 
 {
   const scoring = loadScoring(tournamentData);
+  scoring.state.players = [
+    { id: 1, team: 'Tigers', name: 'Ocampo', username: 'ocampo', password: '1130', isAdmin: true },
+    { id: 2, team: 'Firmas', name: 'Sega', username: 'sega', password: '1', isAdmin: false }
+  ];
+  scoring.ensureStateShape();
+  scoring.state.individuals[0].tigers = 'Ocampo';
+  scoring.state.individuals[0].firmas = 'Sega';
+
+  assert.deepStrictEqual(scoring.filteredMatches('tarjetas').map(match => match.id), ['individual-01']);
+  assert.strictEqual(scoring.totalDisputedPoints(), 2);
+}
+
+{
+  const scoring = loadScoring(tournamentData);
   scoring.ensureStateShape();
   configureFirstPair(scoring);
   configureFirstIndividual(scoring);
